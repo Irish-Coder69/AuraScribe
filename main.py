@@ -2287,15 +2287,6 @@ class CMS1500Tab(ttk.Frame):
     def _collect_form_data(self):
         # Start with field-by-field UI values
         form = {k: v.get().strip() for k, v in self._vars.items()}
-        # Box 26 should default to current patient id when the editor field is blank.
-        if not form.get("patient_account_no"):
-            fallback_pid = (
-                form.get("id")
-                or (self._current_data.get("patient_account_no") if hasattr(self, "_current_data") else "")
-                or self._current_pid
-            )
-            if fallback_pid not in (None, ""):
-                form["patient_account_no"] = str(fallback_pid)
         # Merge in the full data dict (which carries service_lines list)
         # UI scalars take precedence for editable fields; list stays from _current_data.
         if hasattr(self, "_current_data") and self._current_data:
@@ -2519,7 +2510,7 @@ class CMS1500Tab(ttk.Frame):
             "other_accident": g(first, "other_accident") or g(patient, "other_accident"),
             "outside_lab": g(first, "outside_lab") or g(patient, "outside_lab"),
             "outside_lab_charge": "",
-            "patient_account_no": str(pid),
+            "patient_account_no": "",
             "claim_codes": g(latest_billing, "claim_codes"),
             "claim_number": g(latest_billing, "claim_number"),
             "check_number": g(latest_billing, "check_number"),
