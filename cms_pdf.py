@@ -949,9 +949,14 @@ def _overlay_anchor_for_widget(field_name: str, norm_widget: str) -> str | None:
     if norm_widget.startswith("23priorauthorization"):
         return "box_23"
 
-    # Box 24A: Service Date
-    if "dateofservicefrommmddyyrow" in norm_widget or "24adateofservice" in norm_widget:
-        return "box_24a"
+    # Box 24A: Service Date (From / To)
+    if "dateofservicefrommmddyyrow" in norm_widget:
+        return "box_24a_from"
+    if "adateofservicetommddyyrow" in norm_widget or "dateofservicetommddyyrow" in norm_widget:
+        return "box_24a_to"
+    # Fallback for template variants that only expose generic 24A naming.
+    if "24adateofservice" in norm_widget:
+        return "box_24a_from"
 
     # Box 24B: Place of Service
     if "placeofservice" in norm_widget or "bplaceof" in norm_widget:
@@ -994,8 +999,10 @@ def _overlay_anchor_for_widget(field_name: str, norm_widget: str) -> str | None:
         return "box_25"
 
     # Box 25: SSN/EIN type checkboxes
-    if norm_widget in {"ein", "ssn"}:
-        return "box_25_type"
+    if norm_widget == "ssn":
+        return "box_25_ssn"
+    if norm_widget == "ein":
+        return "box_25_ein"
 
     # Box 26: Patient Account Number
     if "patientaccountno" in norm_widget:

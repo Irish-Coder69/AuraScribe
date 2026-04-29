@@ -123,7 +123,8 @@ CMS_OVERLAY_ANCHOR_OPTIONS = [
     ("21 Diagnosis", "box_21"),
     ("22 Resubmission Code", "box_22"),
     ("23 Prior Auth Number", "box_23"),
-    ("24A Service Date", "box_24a"),
+    ("24A Service Date From", "box_24a_from"),
+    ("24A Service Date To", "box_24a_to"),
     ("24B Service POS", "box_24b"),
     ("24C EMG", "box_24c"),
     ("24D Procedure/Modifier", "box_24d"),
@@ -134,7 +135,8 @@ CMS_OVERLAY_ANCHOR_OPTIONS = [
     ("24J Rendering Provider", "box_24j"),
     ("24J Taxonomy", "box_24j_tax"),
     ("25 Federal Tax ID", "box_25"),
-    ("25 SSN/EIN Type", "box_25_type"),
+    ("25 SSN Checkbox", "box_25_ssn"),
+    ("25 EIN Checkbox", "box_25_ein"),
     ("26 Patient Account #", "box_26"),
     ("27 Accept Assignment", "box_27"),
     ("28 Total Charge", "box_28"),
@@ -184,7 +186,7 @@ def _load_cms_overlay_box_offsets(raw_value: object) -> dict[str, dict[str, floa
         return parsed
 
     for key, value in candidate.items():
-        if key not in allowed or not isinstance(value, dict):
+        if not isinstance(value, dict):
             continue
         try:
             x_val = float(value.get("x", 0.0) or 0.0)
@@ -193,10 +195,28 @@ def _load_cms_overlay_box_offsets(raw_value: object) -> dict[str, dict[str, floa
             continue
         if abs(x_val) < 1e-9 and abs(y_val) < 1e-9:
             continue
-        parsed[key] = {
+
+        clamped = {
             "x": max(-2.0, min(2.0, x_val)),
             "y": max(-2.0, min(2.0, y_val)),
         }
+
+        # Backward-compat for older builds where Box 24A used a single anchor key.
+        if key == "box_24a":
+            parsed.setdefault("box_24a_from", dict(clamped))
+            parsed.setdefault("box_24a_to", dict(clamped))
+            continue
+
+        # Backward-compat for older builds where Box 25 used a single anchor key.
+        if key == "box_25_type":
+            parsed.setdefault("box_25_ssn", dict(clamped))
+            parsed.setdefault("box_25_ein", dict(clamped))
+            continue
+
+        if key not in allowed:
+            continue
+
+        parsed[key] = clamped
 
     return parsed
 
