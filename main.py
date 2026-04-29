@@ -82,15 +82,40 @@ _PLACE_CODE_MAP = {p[0]: p[1] for p in PLACE_CODES}
 _PLACE_CODE_REVERSE = {p[1]: p[0] for p in PLACE_CODES}
 PATIENT_DX_KEYS = [f"dx{i}" for i in range(1, 13)]
 CMS_OVERLAY_ANCHOR_OPTIONS = [
-    ("1A Insured ID", "insured_id"),
-    ("2 Patient Name", "patient_name"),
-    ("3 Patient DOB", "patient_dob"),
-    ("21 Diagnosis", "diagnosis"),
-    ("24A Service Date", "service_date"),
-    ("24F Charges", "charges"),
-    ("31 Provider Signature", "provider_signature"),
-    ("32 Service Facility Block", "facility_block"),
-    ("33 Billing Provider Block", "billing_block"),
+    ("1a Insured ID", "box_1a"),
+    ("1b Group #", "box_1b"),
+    ("2 Patient Name", "box_2"),
+    ("3 Patient DOB", "box_3"),
+    ("4 Insured Name", "box_4"),
+    ("5 Patient Address", "box_5"),
+    ("6 Patient Relation", "box_6"),
+    ("7 Insured Address", "box_7"),
+    ("9 Other Insured", "box_9"),
+    ("10 Employment Status", "box_10"),
+    ("11 Insured Plan", "box_11"),
+    ("14 Other Date/Qual", "box_14"),
+    ("15 Other Date", "box_15"),
+    ("17a Referral NPI", "box_17a"),
+    ("17b Referral ID", "box_17b"),
+    ("21 Diagnosis", "box_21"),
+    ("24A Service Date", "box_24a"),
+    ("24B Service POS", "box_24b"),
+    ("24C EMG", "box_24c"),
+    ("24D Procedure/Modifier", "box_24d"),
+    ("24E Diagnosis", "box_24e"),
+    ("24F Charges", "box_24f"),
+    ("24G Units", "box_24g"),
+    ("24J Rendering Provider", "box_24j"),
+    ("25 Federal Tax ID", "box_25"),
+    ("26 Patient Account #", "box_26"),
+    ("27 Accept Assignment", "box_27"),
+    ("28 Total Charge", "box_28"),
+    ("29 Amount Paid", "box_29"),
+    ("31 Provider Signature", "box_31"),
+    ("32a Facility Name", "box_32a"),
+    ("32b Facility ID Qual", "box_32b"),
+    ("33a Billing Name", "box_33a"),
+    ("33b Billing ID Qual", "box_33b"),
 ]
 
 
@@ -1897,6 +1922,7 @@ class CMS1500Tab(ttk.Frame):
             ("Insured Relation", "insured_relation"),
             ("Insured Group", "insured_group"),
             ("Insured Plan Type", "insured_plan_type"),
+            ("Box 1 Type (Optional)", "box1_plan_type"),
             ("Insured Plan Name", "insured_plan_name"),
             ("Other Insured Name", "other_insured_name"),
             ("Other Insured ID", "other_insured_id"),
@@ -2089,7 +2115,21 @@ class CMS1500Tab(ttk.Frame):
             row = idx // 2
             col_base = (idx % 2) * 2
             ttk.Label(body, text=label).grid(row=row, column=col_base, sticky="e", padx=(4, 2), pady=3)
-            ttk.Entry(body, textvariable=self._vars[key]).grid(row=row, column=col_base + 1, sticky="ew", padx=(0, 8), pady=3)
+            if key == "box1_plan_type":
+                ttk.Combobox(
+                    body,
+                    textvariable=self._vars[key],
+                    values=["", "medicare", "medicaid", "tricare", "champva", "group", "feca", "other"],
+                    state="readonly",
+                ).grid(row=row, column=col_base + 1, sticky="ew", padx=(0, 8), pady=3)
+            else:
+                ttk.Entry(body, textvariable=self._vars[key]).grid(
+                    row=row,
+                    column=col_base + 1,
+                    sticky="ew",
+                    padx=(0, 8),
+                    pady=3,
+                )
 
         foot = ttk.Frame(win, padding=(10, 0, 10, 10))
         foot.pack(fill="x")
@@ -2342,6 +2382,8 @@ class CMS1500Tab(ttk.Frame):
             "insured_group": g(patient, "ins_group"),
             "insured_plan_name": g(patient, "ins_name") or g(patient, "ins_plan"),
             "insured_plan_type": g(patient, "ins_plan"),
+            # Box 1 plan selection is optional and should only be marked when user sets it.
+            "box1_plan_type": "",
             "insured_address": insured_address,
             "insured_city": insured_city,
             "insured_state": insured_state,
@@ -2545,8 +2587,50 @@ class CMS1500Tab(ttk.Frame):
         sv_box_y = tk.StringVar(value="0")
         ttk.Entry(dlg, textvariable=sv_box_y, width=10).grid(row=7, column=1, padx=12, pady=4, sticky="w")
 
-        offsets_text = tk.Text(dlg, width=56, height=7, font=FONT_MONO, wrap="none")
-        offsets_text.grid(row=8, column=0, columnspan=4, padx=12, pady=(4, 8), sticky="ew")
+        # Scrollable box list
+        ttk.Label(dlg, text="Select box to adjust:").grid(row=5, column=0, padx=12, pady=(4, 2), sticky="w")
+        
+        list_frame = ttk.Frame(dlg)
+        list_frame.grid(row=6, column=0, columnspan=4, padx=12, pady=4, sticky="ew")
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        box_listbox = tk.Listbox(list_frame, height=8, width=50, font=FONT_UI, yscrollcommand=scrollbar.set)
+        box_listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=box_listbox.yview)
+        
+        for label, key in CMS_OVERLAY_ANCHOR_OPTIONS:
+            box_listbox.insert("end", label)
+        
+        anchor_by_label = {label: key for label, key in CMS_OVERLAY_ANCHOR_OPTIONS}
+        label_by_anchor = {key: label for label, key in CMS_OVERLAY_ANCHOR_OPTIONS}
+        sv_anchor = tk.StringVar(value=CMS_OVERLAY_ANCHOR_OPTIONS[0][0])
+        
+        def _on_box_select(*args):
+            idx = box_listbox.curselection()
+            if idx:
+                label = box_listbox.get(idx[0])
+                sv_anchor.set(label)
+                _load_selected_box()
+        
+        box_listbox.bind("<<ListboxSelect>>", _on_box_select)
+        box_listbox.selection_set(0)
+        
+        ttk.Label(dlg, text="Adjust selected box:").grid(row=7, column=0, padx=12, pady=(4, 2), sticky="w")
+        
+        ttk.Label(dlg, text="Selected: Box 1a Insured ID", name="lbl_selected", font=("Arial", 9)).grid(row=7, column=1, columnspan=3, padx=12, pady=(4, 2), sticky="w")
+        
+        ttk.Label(dlg, text="Horizontal nudge (inches):").grid(row=8, column=0, padx=12, pady=4, sticky="w")
+        sv_box_x = tk.StringVar(value="0")
+        ttk.Entry(dlg, textvariable=sv_box_x, width=10).grid(row=8, column=1, padx=12, pady=4, sticky="w")
+        
+        ttk.Label(dlg, text="Vertical nudge (inches):").grid(row=9, column=0, padx=12, pady=4, sticky="w")
+        sv_box_y = tk.StringVar(value="0")
+        ttk.Entry(dlg, textvariable=sv_box_y, width=10).grid(row=9, column=1, padx=12, pady=4, sticky="w")
+        
+        offsets_text = tk.Text(dlg, width=56, height=6, font=FONT_MONO, wrap="word")
+        offsets_text.grid(row=10, column=0, columnspan=4, padx=12, pady=(8, 8), sticky="ew")
 
         def _refresh_offsets_text():
             offsets_text.config(state="normal")
@@ -2616,18 +2700,31 @@ class CMS1500Tab(ttk.Frame):
         )
 
         ttk.Separator(dlg, orient="horizontal").grid(row=9, column=0, columnspan=4, sticky="ew", padx=12, pady=(4, 6))
+        def _update_selected_label():
+            label = sv_anchor.get()
+            dlg.nametowidget("lbl_selected").config(text=f"Selected: {label}")
+        
+        sv_anchor.trace("w", lambda *_: _update_selected_label())
+        _load_selected_box()
+        _refresh_offsets_text()
+        
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.grid(row=8, column=2, columnspan=2, padx=6, pady=4, sticky="ew")
+        ttk.Button(btn_frame, text="Apply Nudge", command=_apply_box_offset).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="Clear Box", command=_clear_selected_box).pack(side="left", padx=2)
+        ttk.Separator(dlg, orient="horizontal").grid(row=11, column=0, columnspan=4, sticky="ew", padx=12, pady=(4, 6))
 
         ttk.Label(dlg, text="Blank Paper Full-Form Shift", font=("Arial", 10, "bold")).grid(
-            row=10, column=0, columnspan=4, padx=12, pady=(0, 4), sticky="w"
+            row=12, column=0, columnspan=4, padx=12, pady=(0, 4), sticky="w"
         )
 
-        ttk.Label(dlg, text="Horizontal shift (inches):").grid(row=11, column=0, padx=12, pady=4, sticky="w")
+        ttk.Label(dlg, text="Horizontal shift (inches):").grid(row=13, column=0, padx=12, pady=4, sticky="w")
         sv_blank_x = tk.StringVar(value=f"{cur_blank_x:.3f}".rstrip("0").rstrip(".") or "0")
-        ttk.Entry(dlg, textvariable=sv_blank_x, width=10).grid(row=11, column=1, padx=12, pady=4, sticky="w")
+        ttk.Entry(dlg, textvariable=sv_blank_x, width=10).grid(row=13, column=1, padx=12, pady=4, sticky="w")
 
-        ttk.Label(dlg, text="Vertical shift (inches):").grid(row=12, column=0, padx=12, pady=4, sticky="w")
+        ttk.Label(dlg, text="Vertical shift (inches):").grid(row=14, column=0, padx=12, pady=4, sticky="w")
         sv_blank_y = tk.StringVar(value=f"{cur_blank_y:.3f}".rstrip("0").rstrip(".") or "0")
-        ttk.Entry(dlg, textvariable=sv_blank_y, width=10).grid(row=12, column=1, padx=12, pady=4, sticky="w")
+        ttk.Entry(dlg, textvariable=sv_blank_y, width=10).grid(row=14, column=1, padx=12, pady=4, sticky="w")
 
         ttk.Label(
             dlg,
@@ -2638,7 +2735,7 @@ class CMS1500Tab(ttk.Frame):
             ),
             foreground="gray",
             justify="left",
-        ).grid(row=13, column=0, columnspan=4, padx=12, pady=(2, 8), sticky="w")
+        ).grid(row=15, column=0, columnspan=4, padx=12, pady=(2, 8), sticky="w")
 
         def _save(close_dialog=True):
             if not _apply_box_offset(show_feedback=False):
@@ -2686,7 +2783,7 @@ class CMS1500Tab(ttk.Frame):
             _refresh_offsets_text()
 
         btn_row = ttk.Frame(dlg)
-        btn_row.grid(row=14, column=0, columnspan=4, pady=(0, 12))
+        btn_row.grid(row=16, column=0, columnspan=4, pady=(0, 12))
         ttk.Button(btn_row, text="Save", command=_save).pack(side="left", padx=6)
         ttk.Button(btn_row, text="Save + Print Test", command=_save_and_print_test).pack(side="left", padx=6)
         ttk.Button(btn_row, text="Reset to 0", command=_reset).pack(side="left", padx=6)
