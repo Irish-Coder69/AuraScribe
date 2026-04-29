@@ -2528,7 +2528,9 @@ class CMS1500Tab(ttk.Frame):
             return
 
         uses_blank_paper = paper_mode is True
-        export_mode = "full" if uses_blank_paper else "overlay"
+        # Pre-printed export should still show the full front form background,
+        # but skip the second side.
+        export_mode = "full" if uses_blank_paper else "front_only"
 
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
@@ -2542,7 +2544,7 @@ class CMS1500Tab(ttk.Frame):
             return
         saved = self._fill_to_path(Path(path), render_mode=export_mode)
         if saved:
-            mode_text = "blank paper (full form)" if uses_blank_paper else "pre-printed form (front-side overlay only)"
+            mode_text = "blank paper (full form)" if uses_blank_paper else "pre-printed form (front side only)"
             messagebox.showinfo("Exported", f"PDF saved for {mode_text}:\n{saved}")
 
     def _print_preview(self):
