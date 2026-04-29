@@ -485,6 +485,13 @@ def get_billing_for_patient(pid):
     return rows
 
 
+def get_billing_record(rid):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM billing_records WHERE id=?", (rid,)).fetchone()
+    conn.close()
+    return row
+
+
 def get_patient_balance(pid):
     conn = get_connection()
     row = conn.execute(

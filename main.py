@@ -1861,6 +1861,9 @@ class BillingTab(ttk.Frame):
         btn(tb, "Edit", self._edit_record).pack(side="left", padx=2)
         btn(tb, "Delete", self._delete_record, "Danger.TButton").pack(side="left", padx=2)
         btn(tb, "All Records", self._show_all).pack(side="left", padx=2)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        btn(tb, "Save Invoice PDF", self._save_invoice_pdf).pack(side="left", padx=2)
+        btn(tb, "Print Invoice", self._print_invoice_pdf).pack(side="left", padx=2)
 
         self._pt_label = ttk.Label(tb, text="", foreground=ACCENT, font=("Calibri", 10, "bold"))
         self._pt_label.pack(side="right", padx=8)
@@ -1985,6 +1988,93 @@ class BillingTab(ttk.Frame):
         if messagebox.askyesno("Delete", "Delete this billing record?"):
             db.delete_billing_record(rid)
             self.refresh()
+
+    def _invoice_patient_id(self):
+        if self._pid_filter:
+            return self._pid_filter
+        rid = self._sel_rid()
+        if not rid:
+            return None
+        row = db.get_billing_record(rid)
+        if not row:
+            return None
+        return row["patient_id"]
+
+    def _build_invoice_pdf(self, out_path: Path) -> Path | None:
+        pid = self._invoice_patient_id()
+        if not pid:
+            messagebox.showinfo("Invoice", "Select a billing record or open Billing Ledger for a patient first.")
+            return None
+
+        patient = db.get_patient(pid)
+        if not patient:
+            messagebox.showerror("Invoice", "Could not load patient data for invoice.")
+            return None
+
+        billing_rows = [dict(r) for r in db.get_billing_for_patient(pid)]
+        if not billing_rows:
+            messagebox.showinfo("Invoice", "No billing records found for this patient.")
+            return None
+
+        provider = db.get_provider()
+        try:
+            from invoice_pdf import generate_patient_invoice
+
+            generate_patient_invoice(out_path, provider, dict(patient), billing_rows)
+            return out_path
+        except Exception as ex:
+            messagebox.showerror("Invoice", f"Could not generate invoice PDF:\n{ex}")
+            return None
+
+    def _save_invoice_pdf(self):
+        pid = self._invoice_patient_id()
+        if not pid:
+            messagebox.showinfo("Invoice", "Select a billing record or open Billing Ledger for a patient first.")
+            return
+
+        patient = db.get_patient(pid)
+        patient_stub = "patient"
+        if patient:
+            patient_stub = f"{patient['last_name']}_{patient['first_name']}".strip("_").replace(" ", "_")
+
+        out = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            initialfile=f"Invoice_{patient_stub}_{datetime.now().strftime('%Y%m%d')}.pdf",
+        )
+        if not out:
+            return
+
+        saved = self._build_invoice_pdf(Path(out))
+        if saved:
+            messagebox.showinfo("Invoice Saved", f"Invoice PDF saved:\n{saved}")
+
+    def _print_invoice_pdf(self):
+        pid = self._invoice_patient_id()
+        if not pid:
+            messagebox.showinfo("Invoice", "Select a billing record or open Billing Ledger for a patient first.")
+            return
+
+        print_path = APP_ROOT / "temp" / f"invoice_{pid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        saved = self._build_invoice_pdf(print_path)
+        if not saved:
+            return
+
+        if sys.platform.startswith("win"):
+            ready = messagebox.askokcancel(
+                "Print Invoice",
+                "Click OK to send the invoice to the default printer.",
+            )
+            if not ready:
+                return
+            try:
+                os.startfile(str(saved), "print")
+                messagebox.showinfo("Print Invoice", "Invoice sent to the default printer.")
+            except OSError as ex:
+                messagebox.showerror("Print Invoice", f"Could not print invoice:\n{ex}")
+        else:
+            webbrowser.open(saved.resolve().as_uri())
+            messagebox.showinfo("Print Invoice", f"Opened invoice for printing:\n{saved}")
 
 
 # ─── CMS-1500 Tab ──────────────────────────────────────────────────────────────
