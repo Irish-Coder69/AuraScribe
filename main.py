@@ -3064,42 +3064,75 @@ class SettingsTab(ttk.Frame):
         self._import_log.see("end")
         self._import_log.config(state="disabled")
 
-    def _import_patients_csv(self):
-        path = filedialog.askopenfilename(
-            title="Select Patients CSV",
-            filetypes=[("CSV Files","*.csv"),("Text Files","*.txt"),("All","*.*")])
+    def _import_patients_csv(self, path=None, any_filetype=True):
+        if not path:
+            filetypes = [("CSV Files", "*.csv"), ("Text Files", "*.txt"), ("All Files", "*.*")]
+            if any_filetype:
+                filetypes = [("All Files", "*.*"), ("CSV Files", "*.csv"), ("Text Files", "*.txt")]
+            path = filedialog.askopenfilename(
+                title="Select Patients Import File",
+                filetypes=filetypes,
+            )
         if not path:
             return
-        import migration
-        count, warns = migration.import_patients_csv(path)
+        try:
+            import migration
+            count, warns = migration.import_patients_csv(path)
+        except Exception as ex:
+            self._log(f"Patients import failed: {path}")
+            self._log(f"  ERROR: {ex}")
+            messagebox.showerror("Import Failed", f"Could not import patients from:\n{path}\n\nError: {ex}")
+            return
         self._log(f"Patients imported: {count}")
         for w in warns[:20]:
             self._log(f"  WARN: {w}")
         self._refresh_app_views(patients=True, select_tab=0)
         messagebox.showinfo("Import Complete", f"Imported {count} patients.\n{len(warns)} warnings.")
 
-    def _import_sessions_csv(self):
-        path = filedialog.askopenfilename(
-            title="Select Sessions CSV",
-            filetypes=[("CSV Files","*.csv"),("Text Files","*.txt"),("All","*.*")])
+    def _import_sessions_csv(self, path=None, any_filetype=True):
+        if not path:
+            filetypes = [("CSV Files", "*.csv"), ("Text Files", "*.txt"), ("All Files", "*.*")]
+            if any_filetype:
+                filetypes = [("All Files", "*.*"), ("CSV Files", "*.csv"), ("Text Files", "*.txt")]
+            path = filedialog.askopenfilename(
+                title="Select Sessions Import File",
+                filetypes=filetypes,
+            )
         if not path:
             return
-        import migration
-        count, warns = migration.import_sessions_csv(path)
+        try:
+            import migration
+            count, warns = migration.import_sessions_csv(path)
+        except Exception as ex:
+            self._log(f"Sessions import failed: {path}")
+            self._log(f"  ERROR: {ex}")
+            messagebox.showerror("Import Failed", f"Could not import sessions from:\n{path}\n\nError: {ex}")
+            return
         self._log(f"Sessions imported: {count}")
         for w in warns[:20]:
             self._log(f"  WARN: {w}")
         self._refresh_app_views(sessions=True)
         messagebox.showinfo("Import Complete", f"Imported {count} sessions.\n{len(warns)} warnings.")
 
-    def _import_billing_csv(self):
-        path = filedialog.askopenfilename(
-            title="Select Billing CSV",
-            filetypes=[("CSV Files","*.csv"),("Text Files","*.txt"),("All","*.*")])
+    def _import_billing_csv(self, path=None, any_filetype=True):
+        if not path:
+            filetypes = [("CSV Files", "*.csv"), ("Text Files", "*.txt"), ("All Files", "*.*")]
+            if any_filetype:
+                filetypes = [("All Files", "*.*"), ("CSV Files", "*.csv"), ("Text Files", "*.txt")]
+            path = filedialog.askopenfilename(
+                title="Select Billing Import File",
+                filetypes=filetypes,
+            )
         if not path:
             return
-        import migration
-        count, warns = migration.import_billing_csv(path)
+        try:
+            import migration
+            count, warns = migration.import_billing_csv(path)
+        except Exception as ex:
+            self._log(f"Billing import failed: {path}")
+            self._log(f"  ERROR: {ex}")
+            messagebox.showerror("Import Failed", f"Could not import billing records from:\n{path}\n\nError: {ex}")
+            return
         self._log(f"Billing records imported: {count}")
         for w in warns[:20]:
             self._log(f"  WARN: {w}")
@@ -4203,6 +4236,22 @@ class TheraTrakApp(tk.Tk):
         file_menu.add_command(label="New Patient", command=lambda: PatientDialog(self, on_save=lambda _: self.tab_patients.refresh()))
         file_menu.add_command(label="New Session", command=lambda: SessionDialog(self, on_save=lambda _: self.tab_sessions.refresh()))
         file_menu.add_separator()
+
+        import_menu = tk.Menu(file_menu, tearoff=0)
+        import_menu.add_command(label="Import Patients (Any File Type)", command=self._file_import_patients_any)
+        import_menu.add_command(label="Import Sessions (Any File Type)", command=self._file_import_sessions_any)
+        import_menu.add_command(label="Import Billing (Any File Type)", command=self._file_import_billing_any)
+        file_menu.add_cascade(label="Import", menu=import_menu)
+
+        export_menu = tk.Menu(file_menu, tearoff=0)
+        export_menu.add_command(label="Export Patients (CSV)", command=self._file_export_patients_csv)
+        export_menu.add_command(label="Export Sessions (CSV)", command=self._file_export_sessions_csv)
+        export_menu.add_command(label="Export Billing (CSV)", command=self._file_export_billing_csv)
+        export_menu.add_separator()
+        export_menu.add_command(label="Export Bookkeeping (CSV)", command=self._file_export_bookkeeping_csv)
+        file_menu.add_cascade(label="Export", menu=export_menu)
+
+        file_menu.add_separator()
         file_menu.add_command(label="User Directory", command=self._open_user_directory)
         file_menu.add_command(label="Provider Profile", command=self._open_provider_profile)
         file_menu.add_separator()
@@ -4255,6 +4304,34 @@ class TheraTrakApp(tk.Tk):
         self.nb.select(6)
         if hasattr(self, "tab_settings"):
             self.tab_settings.show_provider_profile()
+
+    def _file_import_patients_any(self):
+        if hasattr(self, "tab_settings"):
+            self.tab_settings._import_patients_csv(any_filetype=True)
+
+    def _file_import_sessions_any(self):
+        if hasattr(self, "tab_settings"):
+            self.tab_settings._import_sessions_csv(any_filetype=True)
+
+    def _file_import_billing_any(self):
+        if hasattr(self, "tab_settings"):
+            self.tab_settings._import_billing_csv(any_filetype=True)
+
+    def _file_export_patients_csv(self):
+        if hasattr(self, "tab_reports"):
+            self.tab_reports._export_patients_csv()
+
+    def _file_export_sessions_csv(self):
+        if hasattr(self, "tab_reports"):
+            self.tab_reports._export_sessions_csv()
+
+    def _file_export_billing_csv(self):
+        if hasattr(self, "tab_reports"):
+            self.tab_reports._export_billing_csv()
+
+    def _file_export_bookkeeping_csv(self):
+        if hasattr(self, "tab_bookkeeping"):
+            self.tab_bookkeeping._export_csv()
 
     def _logout(self):
         if not messagebox.askyesno("Logout", "Are you sure you want to log out?", parent=self):
