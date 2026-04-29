@@ -541,6 +541,10 @@ def map_form_data_to_template_fields(form_data: Dict[str, object], template_fiel
             # - If facility_id_qualifier exists, this is for box 32b area
             # - Otherwise, use billing_id_qualifier as fallback
             value = get("facility_id_qualifier") or get("billing_id_qualifier")
+        elif norm_field == "qual":
+            # Box 14 QUAL: Plain "QUAL" field - only populate if explicitly filled via Referral tab.
+            # Do NOT allow fuzzy fallback matching to populate this from id_qualifier fields.
+            value = get("other_date_qual") or ""
 
         # ── Fallbacks ─────────────────────────────────────────────────────────
         elif norm_field in normalized_data:
