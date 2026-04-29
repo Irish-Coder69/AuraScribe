@@ -507,6 +507,13 @@ def get_billing_record(rid):
     return row
 
 
+def get_billing_record_for_session(session_id):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM billing_records WHERE session_id=? ORDER BY id DESC LIMIT 1", (session_id,)).fetchone()
+    conn.close()
+    return row
+
+
 def get_patient_balance(pid):
     conn = get_connection()
     row = conn.execute(

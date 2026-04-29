@@ -1357,8 +1357,14 @@ class SessionDialog(tk.Toplevel):
         bot = ttk.Frame(self, padding=8)
         bot.pack(fill="x", side="bottom")
         self.signed_var = tk.IntVar()
+        self.billing_var = tk.IntVar(value=1)
         ttk.Checkbutton(bot, text="Mark as Signed / Finalized",
                         variable=self.signed_var).pack(side="left", padx=6)
+        ttk.Checkbutton(
+            bot,
+            text="Create/Update Billing Record on Save",
+            variable=self.billing_var,
+        ).pack(side="left", padx=10)
         btn(bot, "Save Session", self._save, "Accent.TButton").pack(side="right", padx=6)
         btn(bot, "Cancel", self.destroy).pack(side="right")
 
@@ -1398,6 +1404,57 @@ class SessionDialog(tk.Toplevel):
         self._response.insert("1.0", s["response"] or "")
         self._plan.insert("1.0", s["plan"] or "")
         self.signed_var.set(s["signed"] or 0)
+        # For existing sessions, default off if no linked billing exists.
+        self.billing_var.set(1 if db.get_billing_record_for_session(self.sid) else 0)
+
+    def _sync_billing_record(self, sid: int, pid: int, data: dict):
+        session_date = str(data.get("session_date", "") or "")
+        cpt_code = str(data.get("cpt_code", "") or "")
+        session_type = str(data.get("session_type", "") or "Session")
+        try:
+            fee = float(data.get("fee", 0) or 0)
+        except Exception:
+            fee = 0.0
+
+        description = f"{session_type} {cpt_code}".strip()
+        existing = db.get_billing_record_for_session(sid)
+
+        if existing:
+            payload = {
+                "id": existing["id"],
+                "patient_id": pid,
+                "session_id": sid,
+                "record_date": existing["record_date"] or session_date or current_date_str(),
+                "service_date": session_date,
+                "description": description,
+                "charge": fee,
+                "payment": float(existing["payment"] or 0),
+                "payment_type": existing["payment_type"] or "",
+                "check_number": existing["check_number"] or "",
+                "ins_payment": float(existing["ins_payment"] or 0),
+                "adjustment": float(existing["adjustment"] or 0),
+                "claim_number": existing["claim_number"] or "",
+            }
+            payload["balance"] = payload["charge"] - payload["payment"] - payload["ins_payment"] - payload["adjustment"]
+            db.save_billing_record(payload)
+            return
+
+        payload = {
+            "patient_id": pid,
+            "session_id": sid,
+            "record_date": session_date or current_date_str(),
+            "service_date": session_date,
+            "description": description,
+            "charge": fee,
+            "payment": 0.0,
+            "payment_type": "",
+            "check_number": "",
+            "ins_payment": 0.0,
+            "adjustment": 0.0,
+            "balance": fee,
+            "claim_number": "",
+        }
+        db.save_billing_record(payload)
 
     def _save(self):
         # Resolve patient ID from combo
@@ -1427,6 +1484,8 @@ class SessionDialog(tk.Toplevel):
         if self.sid:
             data["id"] = self.sid
         sid = db.save_session(data)
+        if self.billing_var.get():
+            self._sync_billing_record(sid, pid, data)
         if self.on_save:
             self.on_save(sid)
         self.destroy()
