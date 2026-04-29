@@ -529,6 +529,12 @@ def map_form_data_to_template_fields(form_data: Dict[str, object], template_fiel
             value = get("billing_taxonomy") or get("taxonomy_code")
         elif norm_field == "bbillingidqualifier":
             value = get("billing_id_qualifier")
+        elif norm_field == "bservicefacilityidqualifier":
+            # New template field name: "b Service Facility ID Qualifier" (for box 32b)
+            value = get("facility_id_qualifier")
+        elif norm_field == "bbillingprovideridqualifier":
+            # New template field name: "b BILLING PROVIDER ID QUALIFIER" (for box 33b)
+            value = get("billing_id_qualifier")
         elif norm_field == "bidqualifier":
             # Handle both scenarios:
             # - If facility_id_qualifier exists, this is for box 32b area
