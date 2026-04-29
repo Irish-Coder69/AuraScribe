@@ -2334,7 +2334,9 @@ class CMS1500Tab(ttk.Frame):
             "provider_signature_date": datetime.now().strftime('%m/%d/%Y'),
             "accept_assignment": "YES" if str(g(provider, "accept_assign", "1")) in {"1", "true", "True", "YES", "yes"} else "NO",
             "federal_tax_id_type": g(provider, "tax_id_type", "EIN"),
-            "billing_id_qualifier": "",
+            # Feed box 32b/33b qualifiers from provider default when no distinct value exists.
+            "billing_id_qualifier": g(provider, "id_qualifier", "ZZ") or "ZZ",
+            "facility_id_qualifier": g(provider, "id_qualifier", "ZZ") or "ZZ",
             "referring_name": g(patient, "referring_name"),
             # 17a should only populate from explicit referral data.
             "referring_taxonomy": g(patient, "referring_taxonomy"),
