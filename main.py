@@ -2517,16 +2517,33 @@ class CMS1500Tab(ttk.Frame):
         ttk.Button(btn_row, text="Cancel", command=dlg.destroy).pack(side="left", padx=6)
 
     def _export_pdf(self):
+        paper_mode = messagebox.askyesnocancel(
+            "Export Setup",
+            "Are you exporting for blank paper?\n\n"
+            "Yes: Blank paper (full CMS form; includes back side if template exists)\n"
+            "No: Pre-printed CMS form (text overlay only; no second side)\n"
+            "Cancel: Do not export",
+        )
+        if paper_mode is None:
+            return
+
+        uses_blank_paper = paper_mode is True
+        export_mode = "full" if uses_blank_paper else "overlay"
+
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF files", "*.pdf")],
-            initialfile=f"CMS1500_{self._vars['patient_name'].get().replace(', ', '_') or 'claim'}.pdf",
+            initialfile=(
+                f"CMS1500_{self._vars['patient_name'].get().replace(', ', '_') or 'claim'}"
+                f"_{'blank' if uses_blank_paper else 'preprinted'}.pdf"
+            ),
         )
         if not path:
             return
-        saved = self._fill_to_path(Path(path))
+        saved = self._fill_to_path(Path(path), render_mode=export_mode)
         if saved:
-            messagebox.showinfo("Exported", f"PDF saved to:\n{saved}")
+            mode_text = "blank paper (full form)" if uses_blank_paper else "pre-printed form (front-side overlay only)"
+            messagebox.showinfo("Exported", f"PDF saved for {mode_text}:\n{saved}")
 
     def _print_preview(self):
         saved = self._refresh_paper_preview()
