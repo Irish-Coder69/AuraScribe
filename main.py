@@ -81,9 +81,67 @@ CMS_BACK_TEMPLATE_CANDIDATES = (
 _PLACE_CODE_MAP = {p[0]: p[1] for p in PLACE_CODES}
 _PLACE_CODE_REVERSE = {p[1]: p[0] for p in PLACE_CODES}
 PATIENT_DX_KEYS = [f"dx{i}" for i in range(1, 13)]
+CMS_OVERLAY_ANCHOR_OPTIONS = [
+    ("1A Insured ID", "insured_id"),
+    ("2 Patient Name", "patient_name"),
+    ("3 Patient DOB", "patient_dob"),
+    ("21 Diagnosis", "diagnosis"),
+    ("24A Service Date", "service_date"),
+    ("24F Charges", "charges"),
+    ("31 Provider Signature", "provider_signature"),
+    ("32 Service Facility Block", "facility_block"),
+    ("33 Billing Provider Block", "billing_block"),
+]
 
 
 # ─── Utilities ─────────────────────────────────────────────────────────────────
+
+
+def _load_cms_overlay_box_offsets(raw_value: object) -> dict[str, dict[str, float]]:
+    """Parse persisted per-anchor overlay offsets (inches)."""
+    allowed = {key for _, key in CMS_OVERLAY_ANCHOR_OPTIONS}
+    parsed: dict[str, dict[str, float]] = {}
+
+    if isinstance(raw_value, dict):
+        candidate = raw_value
+    else:
+        raw_text = str(raw_value or "").strip()
+        if not raw_text:
+            return parsed
+        try:
+            candidate = json.loads(raw_text)
+        except Exception:
+            return parsed
+
+    if not isinstance(candidate, dict):
+        return parsed
+
+    for key, value in candidate.items():
+        if key not in allowed or not isinstance(value, dict):
+            continue
+        try:
+            x_val = float(value.get("x", 0.0) or 0.0)
+            y_val = float(value.get("y", 0.0) or 0.0)
+        except Exception:
+            continue
+        if abs(x_val) < 1e-9 and abs(y_val) < 1e-9:
+            continue
+        parsed[key] = {
+            "x": max(-2.0, min(2.0, x_val)),
+            "y": max(-2.0, min(2.0, y_val)),
+        }
+
+    return parsed
+
+
+def _overlay_box_offsets_inches_to_points(offsets: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for key, val in offsets.items():
+        out[key] = {
+            "x": float(val.get("x", 0.0) or 0.0) * 72.0,
+            "y": float(val.get("y", 0.0) or 0.0) * 72.0,
+        }
+    return out
 
 def _extract_place_code(place_value: str, default: str = "11") -> str:
     """Extract place of service code from display format or return code if already code."""
@@ -1045,6 +1103,8 @@ class PatientDialog(tk.Toplevel):
         ttk.Entry(f3, textvariable=self._fld("referring_npi"), width=14).grid(row=1, column=1, sticky="w")
         ttk.Label(f3, text="Referring Taxonomy (17a)").grid(row=2, column=0, sticky="e", padx=4, pady=4)
         ttk.Entry(f3, textvariable=self._fld("referring_taxonomy"), width=20).grid(row=2, column=1, sticky="w")
+        ttk.Label(f3, text="Other Date Qualifier (14 - optional)").grid(row=3, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(f3, textvariable=self._fld("other_date_qual"), width=8).grid(row=3, column=1, sticky="w")
 
         # ── Save / Cancel ─────────────────────────────────────────────────────
         bot = ttk.Frame(self, padding=8)
@@ -2130,8 +2190,17 @@ class CMS1500Tab(ttk.Frame):
                 provider = db.get_provider()
                 offset_x = float(provider.get("cms_overlay_offset_x") or 0.0) * 72.0
                 offset_y = float(provider.get("cms_overlay_offset_y") or 0.0) * 72.0
-                fill_cms1500_overlay_pdf(CMS_TEMPLATE_FILE, output_path, data,
-                                         offset_x=offset_x, offset_y=offset_y)
+                box_offsets = _overlay_box_offsets_inches_to_points(
+                    _load_cms_overlay_box_offsets(provider.get("cms_overlay_box_offsets"))
+                )
+                fill_cms1500_overlay_pdf(
+                    CMS_TEMPLATE_FILE,
+                    output_path,
+                    data,
+                    offset_x=offset_x,
+                    offset_y=offset_y,
+                    box_offsets=box_offsets,
+                )
             elif render_mode == "front_only":
                 fill_cms1500_pdf(CMS_TEMPLATE_FILE, output_path, data, back_template_path=None)
             else:
@@ -2416,12 +2485,13 @@ class CMS1500Tab(ttk.Frame):
         txt.config(state="disabled")
 
     def _align_overlay(self):
-        """Open a dialog to set X/Y alignment offsets for pre-printed form overlay printing."""
+        """Open a dialog to set global and per-box alignment offsets for pre-printed overlay printing."""
         provider = db.get_provider()
         cur_x = float(provider.get("cms_overlay_offset_x") or 0.0)
         cur_y = float(provider.get("cms_overlay_offset_y") or 0.0)
         cur_blank_x = float(provider.get("cms_blank_offset_x") or 0.0)
         cur_blank_y = float(provider.get("cms_blank_offset_y") or 0.0)
+        box_offsets = _load_cms_overlay_box_offsets(provider.get("cms_overlay_box_offsets"))
 
         dlg = tk.Toplevel(self)
         apply_window_icon(dlg)
@@ -2437,42 +2507,142 @@ class CMS1500Tab(ttk.Frame):
                 "Enter values in inches (e.g. 0.1, -0.05)."
             ),
             justify="left",
-        ).grid(row=0, column=0, columnspan=2, padx=12, pady=(12, 6), sticky="w")
+        ).grid(row=0, column=0, columnspan=4, padx=12, pady=(12, 6), sticky="w")
 
-        ttk.Label(dlg, text="Horizontal shift (inches):").grid(row=1, column=0, padx=12, pady=4, sticky="w")
+        ttk.Label(dlg, text="Global Horizontal shift (inches):").grid(row=1, column=0, padx=12, pady=4, sticky="w")
         sv_x = tk.StringVar(value=f"{cur_x:.3f}".rstrip("0").rstrip(".") or "0")
         ttk.Entry(dlg, textvariable=sv_x, width=10).grid(row=1, column=1, padx=12, pady=4, sticky="w")
 
-        ttk.Label(dlg, text="Vertical shift (inches):").grid(row=2, column=0, padx=12, pady=4, sticky="w")
+        ttk.Label(dlg, text="Global Vertical shift (inches):").grid(row=2, column=0, padx=12, pady=4, sticky="w")
         sv_y = tk.StringVar(value=f"{cur_y:.3f}".rstrip("0").rstrip(".") or "0")
         ttk.Entry(dlg, textvariable=sv_y, width=10).grid(row=2, column=1, padx=12, pady=4, sticky="w")
 
-        ttk.Separator(dlg, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(8, 6))
+        ttk.Separator(dlg, orient="horizontal").grid(row=3, column=0, columnspan=4, sticky="ew", padx=12, pady=(8, 6))
 
-        ttk.Label(dlg, text="Blank Paper Full-Form Shift", font=("Arial", 10, "bold")).grid(
-            row=4, column=0, columnspan=2, padx=12, pady=(0, 4), sticky="w"
+        ttk.Label(dlg, text="Box-by-Box Overlay Nudge (Pre-Printed Only)", font=("Arial", 10, "bold")).grid(
+            row=4, column=0, columnspan=4, padx=12, pady=(0, 4), sticky="w"
         )
 
-        ttk.Label(dlg, text="Horizontal shift (inches):").grid(row=5, column=0, padx=12, pady=4, sticky="w")
-        sv_blank_x = tk.StringVar(value=f"{cur_blank_x:.3f}".rstrip("0").rstrip(".") or "0")
-        ttk.Entry(dlg, textvariable=sv_blank_x, width=10).grid(row=5, column=1, padx=12, pady=4, sticky="w")
+        anchor_by_label = {label: key for label, key in CMS_OVERLAY_ANCHOR_OPTIONS}
+        label_by_anchor = {key: label for label, key in CMS_OVERLAY_ANCHOR_OPTIONS}
 
-        ttk.Label(dlg, text="Vertical shift (inches):").grid(row=6, column=0, padx=12, pady=4, sticky="w")
+        ttk.Label(dlg, text="Target box group:").grid(row=5, column=0, padx=12, pady=4, sticky="w")
+        sv_anchor = tk.StringVar(value=CMS_OVERLAY_ANCHOR_OPTIONS[0][0])
+        anchor_combo = ttk.Combobox(
+            dlg,
+            textvariable=sv_anchor,
+            values=[label for label, _ in CMS_OVERLAY_ANCHOR_OPTIONS],
+            width=32,
+            state="readonly",
+        )
+        anchor_combo.grid(row=5, column=1, columnspan=3, padx=12, pady=4, sticky="w")
+
+        ttk.Label(dlg, text="Box Horizontal nudge (inches):").grid(row=6, column=0, padx=12, pady=4, sticky="w")
+        sv_box_x = tk.StringVar(value="0")
+        ttk.Entry(dlg, textvariable=sv_box_x, width=10).grid(row=6, column=1, padx=12, pady=4, sticky="w")
+
+        ttk.Label(dlg, text="Box Vertical nudge (inches):").grid(row=7, column=0, padx=12, pady=4, sticky="w")
+        sv_box_y = tk.StringVar(value="0")
+        ttk.Entry(dlg, textvariable=sv_box_y, width=10).grid(row=7, column=1, padx=12, pady=4, sticky="w")
+
+        offsets_text = tk.Text(dlg, width=56, height=7, font=FONT_MONO, wrap="none")
+        offsets_text.grid(row=8, column=0, columnspan=4, padx=12, pady=(4, 8), sticky="ew")
+
+        def _refresh_offsets_text():
+            offsets_text.config(state="normal")
+            offsets_text.delete("1.0", "end")
+            if not box_offsets:
+                offsets_text.insert("1.0", "No per-box offsets set.")
+            else:
+                lines = ["Per-box offsets (inches):"]
+                for key in sorted(box_offsets.keys()):
+                    label = label_by_anchor.get(key, key)
+                    x_val = float(box_offsets[key].get("x", 0.0) or 0.0)
+                    y_val = float(box_offsets[key].get("y", 0.0) or 0.0)
+                    lines.append(f"- {label}: x={x_val:+.3f}, y={y_val:+.3f}")
+                offsets_text.insert("1.0", "\n".join(lines))
+            offsets_text.config(state="disabled")
+
+        def _load_selected_box():
+            anchor_key = anchor_by_label.get(sv_anchor.get(), "")
+            vals = box_offsets.get(anchor_key, {"x": 0.0, "y": 0.0})
+            x_val = float(vals.get("x", 0.0) or 0.0)
+            y_val = float(vals.get("y", 0.0) or 0.0)
+            sv_box_x.set(f"{x_val:.3f}".rstrip("0").rstrip(".") or "0")
+            sv_box_y.set(f"{y_val:.3f}".rstrip("0").rstrip(".") or "0")
+
+        def _apply_box_offset(show_feedback=True):
+            anchor_key = anchor_by_label.get(sv_anchor.get(), "")
+            if not anchor_key:
+                messagebox.showerror("Alignment", "Select a target box group.", parent=dlg)
+                return False
+            try:
+                box_x = float(sv_box_x.get())
+                box_y = float(sv_box_y.get())
+            except ValueError:
+                messagebox.showerror("Alignment", "Please enter valid box nudge values.", parent=dlg)
+                return False
+            if abs(box_x) > 2.0 or abs(box_y) > 2.0:
+                messagebox.showerror(
+                    "Alignment",
+                    "Box nudges larger than 2 inches are unlikely to be correct.",
+                    parent=dlg,
+                )
+                return False
+            if abs(box_x) < 1e-9 and abs(box_y) < 1e-9:
+                box_offsets.pop(anchor_key, None)
+            else:
+                box_offsets[anchor_key] = {"x": box_x, "y": box_y}
+            _refresh_offsets_text()
+            if show_feedback:
+                messagebox.showinfo("Alignment", f"Saved nudge for {sv_anchor.get()}.", parent=dlg)
+            return True
+
+        def _clear_selected_box():
+            anchor_key = anchor_by_label.get(sv_anchor.get(), "")
+            box_offsets.pop(anchor_key, None)
+            _load_selected_box()
+            _refresh_offsets_text()
+
+        anchor_combo.bind("<<ComboboxSelected>>", lambda _evt: _load_selected_box())
+        _load_selected_box()
+        _refresh_offsets_text()
+
+        ttk.Button(dlg, text="Apply Box Nudge", command=_apply_box_offset).grid(
+            row=6, column=2, padx=6, pady=4, sticky="w"
+        )
+        ttk.Button(dlg, text="Clear Selected Box", command=_clear_selected_box).grid(
+            row=7, column=2, padx=6, pady=4, sticky="w"
+        )
+
+        ttk.Separator(dlg, orient="horizontal").grid(row=9, column=0, columnspan=4, sticky="ew", padx=12, pady=(4, 6))
+
+        ttk.Label(dlg, text="Blank Paper Full-Form Shift", font=("Arial", 10, "bold")).grid(
+            row=10, column=0, columnspan=4, padx=12, pady=(0, 4), sticky="w"
+        )
+
+        ttk.Label(dlg, text="Horizontal shift (inches):").grid(row=11, column=0, padx=12, pady=4, sticky="w")
+        sv_blank_x = tk.StringVar(value=f"{cur_blank_x:.3f}".rstrip("0").rstrip(".") or "0")
+        ttk.Entry(dlg, textvariable=sv_blank_x, width=10).grid(row=11, column=1, padx=12, pady=4, sticky="w")
+
+        ttk.Label(dlg, text="Vertical shift (inches):").grid(row=12, column=0, padx=12, pady=4, sticky="w")
         sv_blank_y = tk.StringVar(value=f"{cur_blank_y:.3f}".rstrip("0").rstrip(".") or "0")
-        ttk.Entry(dlg, textvariable=sv_blank_y, width=10).grid(row=6, column=1, padx=12, pady=4, sticky="w")
+        ttk.Entry(dlg, textvariable=sv_blank_y, width=10).grid(row=12, column=1, padx=12, pady=4, sticky="w")
 
         ttk.Label(
             dlg,
             text=(
-                "Use Save + Print Test to print a calibration page with rulers and red guide markers.\n"
-                "Adjust overlay values until markers land in the correct boxes.\n"
-                "Blank-paper values shift the full form (front/back) to compensate printer margins."
+                "Use Save + Print Test to print a calibration page with red markers.\n"
+                "Tune global shift first, then apply per-box nudges where needed.\n"
+                "Blank-paper values shift the full form (front/back) for printer margins."
             ),
             foreground="gray",
             justify="left",
-        ).grid(row=7, column=0, columnspan=2, padx=12, pady=(2, 8), sticky="w")
+        ).grid(row=13, column=0, columnspan=4, padx=12, pady=(2, 8), sticky="w")
 
         def _save(close_dialog=True):
+            if not _apply_box_offset(show_feedback=False):
+                return False
             try:
                 x_val = float(sv_x.get())
                 y_val = float(sv_y.get())
@@ -2493,6 +2663,7 @@ class CMS1500Tab(ttk.Frame):
                 "cms_overlay_offset_y": y_val,
                 "cms_blank_offset_x": blank_x_val,
                 "cms_blank_offset_y": blank_y_val,
+                "cms_overlay_box_offsets": json.dumps(box_offsets, separators=(",", ":")),
             })
             if close_dialog:
                 messagebox.showinfo("Alignment", "Overlay alignment saved.", parent=dlg)
@@ -2510,9 +2681,12 @@ class CMS1500Tab(ttk.Frame):
             sv_y.set("0")
             sv_blank_x.set("0")
             sv_blank_y.set("0")
+            box_offsets.clear()
+            _load_selected_box()
+            _refresh_offsets_text()
 
         btn_row = ttk.Frame(dlg)
-        btn_row.grid(row=8, column=0, columnspan=2, pady=(0, 12))
+        btn_row.grid(row=14, column=0, columnspan=4, pady=(0, 12))
         ttk.Button(btn_row, text="Save", command=_save).pack(side="left", padx=6)
         ttk.Button(btn_row, text="Save + Print Test", command=_save_and_print_test).pack(side="left", padx=6)
         ttk.Button(btn_row, text="Reset to 0", command=_reset).pack(side="left", padx=6)
@@ -2567,6 +2741,9 @@ class CMS1500Tab(ttk.Frame):
         provider = db.get_provider()
         offset_x = float(provider.get("cms_overlay_offset_x") or 0.0)
         offset_y = float(provider.get("cms_overlay_offset_y") or 0.0)
+        box_offsets = _overlay_box_offsets_inches_to_points(
+            _load_cms_overlay_box_offsets(provider.get("cms_overlay_box_offsets"))
+        )
         test_path = APP_ROOT / "temp" / f"CMS1500_overlay_alignment_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
         try:
@@ -2575,6 +2752,7 @@ class CMS1500Tab(ttk.Frame):
                 test_path,
                 offset_x=offset_x * 72.0,
                 offset_y=offset_y * 72.0,
+                box_offsets=box_offsets,
             )
         except Exception as ex:
             messagebox.showerror("Alignment Test", f"Could not generate alignment test PDF:\n{ex}")

@@ -451,7 +451,9 @@ def map_form_data_to_template_fields(form_data: Dict[str, object], template_fiel
         elif norm_field.startswith("15otherdate") and "qual" not in norm_field:
             value = get("other_date")
         elif norm_field.startswith("15otherdatequal"):
-            value = get("other_date_qual")
+            # Box 14 QUAL: Only populate if explicitly filled via Referral tab.
+            # Do NOT auto-populate from any other field or fallback value.
+            value = get("other_date_qual") or ""
         elif norm_field.startswith("19additionalclaiminformation"):
             value = get("additional_claim_info")
         elif "27acceptassignmentyes" in norm_field:
@@ -721,6 +723,7 @@ def fill_cms1500_overlay_pdf(
     form_data: Dict[str, object],
     offset_x: float = 0.0,
     offset_y: float = 0.0,
+    box_offsets: Dict[str, Dict[str, float]] | None = None,
 ) -> str:
     """Render populated CMS field values only (no form background) for pre-printed paper."""
     import fitz
@@ -738,6 +741,8 @@ def fill_cms1500_overlay_pdf(
             template_fields = [w.field_name for w in template_page.widgets()]
             field_values = map_form_data_to_template_fields(form_data, template_fields)
 
+            box_offsets = box_offsets or {}
+
             for widget in template_page.widgets():
                 field_name = widget.field_name or ""
                 norm_widget = _normalize(field_name)
@@ -752,13 +757,21 @@ def fill_cms1500_overlay_pdf(
 
                 font_size = 10 if norm_widget.startswith("33billingprovidername") else 11
 
+                anchor_key = _overlay_anchor_for_widget(field_name, norm_widget)
+                anchor_offsets = box_offsets.get(anchor_key, {}) if anchor_key else {}
+                local_x = float(anchor_offsets.get("x", 0.0) or 0.0)
+                local_y = float(anchor_offsets.get("y", 0.0) or 0.0)
+
                 # Bottom-left text baseline placement inside each field box.
-                x = widget.rect.x0 + 1.0 + offset_x
-                y = widget.rect.y1 - 1.6 + offset_y
+                x = widget.rect.x0 + 1.0 + offset_x + local_x
+                y = widget.rect.y1 - 1.6 + offset_y + local_y
 
                 if field_name.startswith("F CHARGESRow"):
                     text_w = fitz.get_text_length(val, fontname="helv", fontsize=font_size)
-                    x = max(widget.rect.x0 + 1.0 + offset_x, widget.rect.x1 - text_w - 1.0 + offset_x)
+                    x = max(
+                        widget.rect.x0 + 1.0 + offset_x + local_x,
+                        widget.rect.x1 - text_w - 1.0 + offset_x + local_x,
+                    )
 
                 page.insert_text(
                     fitz.Point(x, y),
@@ -793,11 +806,46 @@ def _find_widget_by_matchers(widgets: Iterable[object], *, exact: str | None = N
     return None
 
 
+def _overlay_anchor_for_widget(field_name: str, norm_widget: str) -> str | None:
+    """Return box-alignment anchor key used for per-box overlay nudges."""
+    if "1ainsuredsid" in norm_widget:
+        return "insured_id"
+    if norm_widget.startswith("2patientsname"):
+        return "patient_name"
+    if norm_widget.startswith("3patientsbirthdate"):
+        return "patient_dob"
+    if norm_widget in {"ai", "bi", "ci", "di", "ei", "fi", "gi", "hi", "ii", "ji", "ki", "li"}:
+        return "diagnosis"
+    if "dateofservicefrommmddyyrow" in norm_widget or "24adateofservice" in norm_widget:
+        return "service_date"
+    if field_name.startswith("F CHARGESRow") or "chargesrow" in norm_widget:
+        return "charges"
+    if norm_widget.startswith("31providersignature"):
+        return "provider_signature"
+
+    if (
+        norm_widget.startswith("32servicefacility")
+        or norm_widget.startswith("servicefacility")
+        or norm_widget in {"anpi1", "32aservicefacilitynpi", "32btaxonomycode", "32bidqualifier", "bservicefacilityidqualifier"}
+    ):
+        return "facility_block"
+
+    if (
+        norm_widget.startswith("33billingprovider")
+        or norm_widget.startswith("billing")
+        or norm_widget in {"anpi2", "33abillingnpi", "33btaxonomycode", "bbillingidqualifier", "bbillingprovideridqualifier"}
+    ):
+        return "billing_block"
+
+    return None
+
+
 def fill_cms1500_overlay_alignment_test_pdf(
     template_path: str | Path,
     output_path: str | Path,
     offset_x: float = 0.0,
     offset_y: float = 0.0,
+    box_offsets: Dict[str, Dict[str, float]] | None = None,
 ) -> str:
     """Render a printable calibration sheet for pre-printed CMS overlay alignment."""
     import fitz
@@ -883,26 +931,32 @@ def fill_cms1500_overlay_alignment_test_pdf(
                 overlay=True,
             )
 
+            box_offsets = box_offsets or {}
             anchor_specs = [
-                ("1A", {"contains": "1ainsuredsid"}),
-                ("2", {"startswith": "2patientsname"}),
-                ("3", {"startswith": "3patientsbirthdate"}),
-                ("21A", {"exact": "ai"}),
-                ("24A", {"contains": "dateofservicefrommmddyyrow"}),
-                ("24F", {"contains": "chargesrow"}),
-                ("31", {"startswith": "31providersignature"}),
-                ("33", {"startswith": "33billingprovidername"}),
+                ("1A", {"contains": "1ainsuredsid"}, "insured_id"),
+                ("2", {"startswith": "2patientsname"}, "patient_name"),
+                ("3", {"startswith": "3patientsbirthdate"}, "patient_dob"),
+                ("21A", {"exact": "ai"}, "diagnosis"),
+                ("24A", {"contains": "dateofservicefrommmddyyrow"}, "service_date"),
+                ("24F", {"contains": "chargesrow"}, "charges"),
+                ("31", {"startswith": "31providersignature"}, "provider_signature"),
+                ("32", {"startswith": "32servicefacilityname"}, "facility_block"),
+                ("33", {"startswith": "33billingprovidername"}, "billing_block"),
             ]
 
-            for label, matcher in anchor_specs:
+            for label, matcher, anchor_key in anchor_specs:
                 widget = _find_widget_by_matchers(widgets, **matcher)
                 if not widget:
                     continue
 
-                x = widget.rect.x0 + 1.0 + offset_x
-                y = widget.rect.y1 - 1.6 + offset_y
+                anchor_offsets = box_offsets.get(anchor_key, {})
+                local_x = float(anchor_offsets.get("x", 0.0) or 0.0)
+                local_y = float(anchor_offsets.get("y", 0.0) or 0.0)
+
+                x = widget.rect.x0 + 1.0 + offset_x + local_x
+                y = widget.rect.y1 - 1.6 + offset_y + local_y
                 if (widget.field_name or "").startswith("F CHARGESRow"):
-                    x = widget.rect.x1 - 8.0 + offset_x
+                    x = widget.rect.x1 - 8.0 + offset_x + local_x
 
                 page.draw_line(fitz.Point(x - 7, y), fitz.Point(x + 7, y), color=label_color, width=0.7)
                 page.draw_line(fitz.Point(x, y - 7), fitz.Point(x, y + 7), color=label_color, width=0.7)
