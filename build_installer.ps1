@@ -27,6 +27,71 @@ if ($pyVersion.Major -eq 3 -and $pyVersion.Minor -ge 13) {
 
 Remove-Item $buildDir, $distDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+New-Item -ItemType Directory -Force -Path $buildDir   | Out-Null
+
+# ── Read version and generate Windows EXE metadata files ──────────────────────
+$verData    = Get-Content $versionJson -Raw | ConvertFrom-Json
+$verMajor   = [int]$verData.major
+$verMinor   = [int]$verData.minor
+$verPatch   = [int]$verData.patch
+$verBuild   = [int]$verData.build
+$verStr     = "$verMajor.$verMinor.$verPatch.$verBuild"
+$verTuple   = "($verMajor, $verMinor, $verPatch, $verBuild)"
+$copyYear   = if ((Get-Date).Year -gt 2025) { "2025-$((Get-Date).Year)" } else { "2025" }
+
+function New-VersionInfoFile {
+    param(
+        [string]$FilePath,
+        [string]$FileDescription,
+        [string]$OriginalFilename,
+        [string]$VersionTuple,
+        [string]$VersionStr,
+        [string]$CopyYear
+    )
+    @"
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=$VersionTuple,
+    prodvers=$VersionTuple,
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'TheraTrak'),
+        StringStruct(u'FileDescription', u'$FileDescription'),
+        StringStruct(u'FileVersion', u'$VersionStr'),
+        StringStruct(u'InternalName', u'$OriginalFilename'),
+        StringStruct(u'LegalCopyright', u'Copyright $CopyYear TheraTrak'),
+        StringStruct(u'OriginalFilename', u'$OriginalFilename'),
+        StringStruct(u'ProductName', u'TheraTrak Pro'),
+        StringStruct(u'ProductVersion', u'$VersionStr')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+"@ | Set-Content -Path $FilePath -Encoding UTF8
+}
+
+$appVerFile         = Join-Path $buildDir 'version_info_app.txt'
+$installerVerFile   = Join-Path $buildDir 'version_info_installer.txt'
+$uninstallerVerFile = Join-Path $buildDir 'version_info_uninstaller.txt'
+
+New-VersionInfoFile -FilePath $appVerFile -FileDescription 'TheraTrak Pro - Practice Management' `
+    -OriginalFilename 'TheraTrak Pro.exe' -VersionTuple $verTuple -VersionStr $verStr -CopyYear $copyYear
+New-VersionInfoFile -FilePath $installerVerFile -FileDescription 'TheraTrak Pro Installer' `
+    -OriginalFilename 'TheraTrak-Pro-Installer.exe' -VersionTuple $verTuple -VersionStr $verStr -CopyYear $copyYear
+New-VersionInfoFile -FilePath $uninstallerVerFile -FileDescription 'TheraTrak Pro Uninstaller' `
+    -OriginalFilename 'TheraTrak Pro Uninstaller.exe' -VersionTuple $verTuple -VersionStr $verStr -CopyYear $copyYear
+
+Write-Host "EXE version metadata files generated for v$verStr."
 
 $pyInstallerArgs = @(
     '-m', 'PyInstaller',
@@ -42,12 +107,26 @@ $pyInstallerArgs = @(
     '--add-data', ($assetsDir + ';assets'),
     '--hidden-import', 'pypdf',
     '--hidden-import', 'pypdf.generic',
+    '--collect-all', 'pypdf',
     '--hidden-import', 'fitz',
     '--collect-all', 'fitz',
+    '--hidden-import', 'PIL',
+    '--hidden-import', 'PIL.Image',
+    '--hidden-import', 'PIL.ImageTk',
+    '--collect-all', 'PIL',
+    '--hidden-import', 'cms_pdf',
+    '--hidden-import', 'migration',
+    '--hidden-import', 'dsm_codes',
+    '--version-file', $appVerFile,
     $mainPy
 )
 
 & $python @pyInstallerArgs
+
+# Copy version.json to the app dist folder so the standalone dist build knows its version.
+$versionJsonDest = Join-Path $distDir 'TheraTrak Pro\version.json'
+Copy-Item $versionJson $versionJsonDest -Force
+Write-Host "Copied version.json to dist."
 
 # Copy CMS-1500 fillable template into the app dist folder so it ships with the installer.
 $cmsTemplate = Join-Path $root 'CMS1500_template.pdf'
@@ -81,6 +160,7 @@ $uninstallerArgs = @(
     '--distpath', $distDir,
     '--workpath', (Join-Path $buildDir 'uninstaller'),
     '--specpath', $buildDir,
+    '--version-file', $uninstallerVerFile,
     $uninstallerPy
 )
 
@@ -101,6 +181,7 @@ $installerArgs = @(
     '--add-data', ((Join-Path $distDir 'TheraTrak Pro Uninstaller.exe') + ';.'),
     '--add-data', ($icon + ';.'),
     '--add-data', ($versionJson + ';.'),
+    '--version-file', $installerVerFile,
     $installerPy
 )
 

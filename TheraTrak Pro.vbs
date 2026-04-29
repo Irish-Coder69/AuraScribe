@@ -1,4 +1,6 @@
 Option Explicit
+' DEVELOPER LAUNCH SCRIPT - Requires Python (venv) on this machine.
+' End users should run the installed TheraTrak Pro.exe created by build_installer.ps1.
 
 Dim shell, fso, scriptDir, mainPy, venvPythonw, cmd
 

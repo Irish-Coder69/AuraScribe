@@ -1,6 +1,12 @@
 @echo off
 cd /d "%~dp0"
 
+echo ============================================================
+echo  DEVELOPER LAUNCH SCRIPT - Requires Python on this machine
+echo  End users should run the installed TheraTrak Pro.exe
+echo ============================================================
+echo.
+
 if not exist main.py (
     echo.
     echo ERROR: main.py was not found in this folder.

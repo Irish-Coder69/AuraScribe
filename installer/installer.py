@@ -20,9 +20,23 @@ APP_BUNDLE_DIR = "app"
 UNINSTALL_CMD = "Uninstall TheraTrak Pro.cmd"
 ICON_FILE = "Theratrak-Pro.ico"
 VERSION_FILE = "version.json"
-PYTHON_DLL_REL = Path("_internal") / "python311.dll"
 LEGACY_START_MENU_FOLDERS = ("Thorough Track Pro", "TheraTrak-Pro")
 LEGACY_ROOT_SHORTCUTS = ("TheraTrak Pro.lnk", "Uninstall TheraTrak Pro.lnk")
+
+
+def _find_bundled_python_dll(app_bundle_dir: Path) -> Path | None:
+    """Return the path relative to app_bundle_dir of the Python runtime DLL.
+
+    PyInstaller places the DLL inside _internal/  (e.g. python311.dll or
+    python312.dll depending on the build Python version).  Probing for it
+    at runtime avoids a hardcoded version number that breaks if the build
+    environment is ever upgraded.
+    """
+    internal = app_bundle_dir / "_internal"
+    if internal.is_dir():
+        for dll in sorted(internal.glob("python3*.dll")):
+            return Path("_internal") / dll.name
+    return None
 
 
 def _stop_running_app() -> None:
@@ -275,11 +289,11 @@ def main() -> int:
     _stop_running_app()
 
     app_bundle = source / APP_BUNDLE_DIR
-    source_python_dll = app_bundle / PYTHON_DLL_REL
-    if not source_python_dll.exists():
+    python_dll_rel = _find_bundled_python_dll(app_bundle)
+    if python_dll_rel is None:
         messagebox.showerror(
             APP_NAME,
-            "Install failed. Installer payload is incomplete (missing _internal\\python311.dll).\n"
+            "Install failed. Installer payload is incomplete (missing _internal\\python3xx.dll).\n"
             "Please download the installer again.",
         )
         root.destroy()
@@ -308,7 +322,7 @@ def main() -> int:
     exe_path = target / APP_EXE
     uninstaller_path = target / UNINSTALL_EXE
     icon_path = target / ICON_FILE
-    target_python_dll = target / PYTHON_DLL_REL
+    target_python_dll = target / python_dll_rel
     uninstall_cmd_path = target / UNINSTALL_CMD
 
     # Extra safeguard: if the runtime DLL is still missing, try one focused recopy.
@@ -321,7 +335,7 @@ def main() -> int:
         (APP_EXE, exe_path),
         (UNINSTALL_EXE, uninstaller_path),
         (ICON_FILE, icon_path),
-        (str(PYTHON_DLL_REL).replace("/", "\\"), target_python_dll),
+        (str(python_dll_rel).replace("/", "\\"), target_python_dll),
     ]
     missing = [label for label, p in required if not p.exists()]
     if missing:
