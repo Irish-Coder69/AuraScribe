@@ -111,8 +111,10 @@ CMS_OVERLAY_ANCHOR_OPTIONS = [
     ("11d Other Benefit Plan", "box_11d"),
     ("12 Patient Signature", "box_12"),
     ("13 Insured Signature", "box_13"),
-    ("14 Other Date/Qual", "box_14"),
+    ("14 Illness Date", "box_14_illness_date"),
+    ("14 Illness Date QUAL", "box_14_illness_qual"),
     ("15 Other Date", "box_15"),
+    ("15 Other Date QUAL", "box_15_qual"),
     ("16 Unable to Work", "box_16"),
     ("17 Referring Name", "box_17"),
     ("17a Referral NPI", "box_17a"),
@@ -200,6 +202,18 @@ def _load_cms_overlay_box_offsets(raw_value: object) -> dict[str, dict[str, floa
             "x": max(-2.0, min(2.0, x_val)),
             "y": max(-2.0, min(2.0, y_val)),
         }
+
+        # Backward-compat for older builds where Box 14 used a single anchor key.
+        if key == "box_14":
+            parsed.setdefault("box_14_illness_date", dict(clamped))
+            parsed.setdefault("box_14_illness_qual", dict(clamped))
+            continue
+
+        # Backward-compat for older builds where Box 15 used no qualifier anchor.
+        if key == "box_15":
+            parsed.setdefault("box_15", dict(clamped))
+            parsed.setdefault("box_15_qual", dict(clamped))
+            continue
 
         # Backward-compat for older builds where Box 24A used a single anchor key.
         if key == "box_24a":
@@ -1190,8 +1204,14 @@ class PatientDialog(tk.Toplevel):
         ttk.Entry(f3, textvariable=self._fld("referring_npi"), width=14).grid(row=1, column=1, sticky="w")
         ttk.Label(f3, text="Referring Taxonomy (17a)").grid(row=2, column=0, sticky="e", padx=4, pady=4)
         ttk.Entry(f3, textvariable=self._fld("referring_taxonomy"), width=20).grid(row=2, column=1, sticky="w")
-        ttk.Label(f3, text="Other Date Qualifier (14 - optional)").grid(row=3, column=0, sticky="e", padx=4, pady=4)
-        ttk.Entry(f3, textvariable=self._fld("other_date_qual"), width=8).grid(row=3, column=1, sticky="w")
+        ttk.Label(f3, text="Illness Date (14)").grid(row=2, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(f3, textvariable=self._fld("illness_date"), width=12).grid(row=2, column=1, sticky="w")
+        ttk.Label(f3, text="Illness Date QUAL").grid(row=3, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(f3, textvariable=self._fld("illness_date_qual"), width=8).grid(row=3, column=1, sticky="w")
+        ttk.Label(f3, text="Other Date (15)").grid(row=4, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(f3, textvariable=self._fld("other_date"), width=12).grid(row=4, column=1, sticky="w")
+        ttk.Label(f3, text="Other Date QUAL (15)").grid(row=5, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(f3, textvariable=self._fld("other_date_qual"), width=8).grid(row=5, column=1, sticky="w")
 
         # ── Save / Cancel ─────────────────────────────────────────────────────
         bot = ttk.Frame(self, padding=8)
@@ -2008,6 +2028,7 @@ class CMS1500Tab(ttk.Frame):
             ("Diagnosis 12", "dx12"),
             ("Service Date", "service_date"),
             ("Illness Date", "illness_date"),
+            ("Illness Date Qual", "illness_date_qual"),
             ("Other Date", "other_date"),
             ("Other Date Qual", "other_date_qual"),
             ("Unable To Work From", "unable_to_work_from"),
@@ -2472,6 +2493,7 @@ class CMS1500Tab(ttk.Frame):
             # Row-1 scalar fallbacks (used when service_lines is ignored)
             "service_date": g(first, "session_date"),
             "illness_date": "",
+            "illness_date_qual": "",
             "other_date": "",
             "other_date_qual": "",
             "unable_to_work_from": g(first, "unable_to_work_from") or g(patient, "unable_to_work_from"),

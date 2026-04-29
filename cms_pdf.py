@@ -437,6 +437,8 @@ def map_form_data_to_template_fields(form_data: Dict[str, object], template_fiel
             value = get("claim_number")
         elif norm_field.startswith("14dateofcurrentillness"):
             value = get("illness_date")
+        elif "14" in norm_field and "qual" in norm_field:
+            value = get("illness_date_qual") or ""
         elif "10dclaimcodesdesignatedbynucc" in norm_field:
             value = get("claim_codes")
         elif norm_field.startswith("16datespatientunabletoworkincurrentoccupatiofrom"):
@@ -450,7 +452,7 @@ def map_form_data_to_template_fields(form_data: Dict[str, object], template_fiel
         elif norm_field.startswith("15otherdate") and "qual" not in norm_field:
             value = get("other_date")
         elif norm_field.startswith("15otherdatequal"):
-            # Box 14 QUAL: Only populate if explicitly filled via Referral tab.
+            # Box 15 QUAL: Only populate if explicitly filled via Referral tab.
             # Do NOT auto-populate from any other field or fallback value.
             value = get("other_date_qual") or ""
         elif norm_field.startswith("19additionalclaiminformation"):
@@ -905,13 +907,17 @@ def _overlay_anchor_for_widget(field_name: str, norm_widget: str) -> str | None:
     if norm_widget.startswith("13insuredssignature"):
         return "box_13"
 
-    # Box 14: Other Date & Qualifier
-    if norm_widget.startswith("15otherdatequal"):
-        return "box_14"
+    # Box 14: Illness Date & Qualifier
+    if norm_widget.startswith("14dateofcurrentillness"):
+        return "box_14_illness_date"
+    if "14" in norm_widget and "qual" in norm_widget:
+        return "box_14_illness_qual"
 
-    # Box 15: Other Date
+    # Box 15: Other Date & Qualifier
     if norm_widget.startswith("15otherdate") and "qual" not in norm_widget:
         return "box_15"
+    if norm_widget.startswith("15otherdatequal"):
+        return "box_15_qual"
 
     # Box 16: Unable to work dates (from/to)
     if norm_widget.startswith("16datespatientunabletowork") or norm_widget.startswith("datespatientunabletowork"):
