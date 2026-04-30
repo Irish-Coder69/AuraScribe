@@ -1614,7 +1614,7 @@ class BillingDialog(tk.Toplevel):
 
         ttk.Label(f, text="Payment Type").grid(row=5, column=0, sticky="e", padx=4, pady=4)
         ttk.Combobox(f, textvariable=self._fld("payment_type"),
-                     values=["","Cash","Check","Credit Card","Debit Card","Insurance","Write-off","Other"],
+                     values=["","Cash","Check","Credit Card","Debit Card","PayPal","Venmo","Insurance","Write-off","Other"],
                      width=16).grid(row=5, column=1, sticky="w")
         ttk.Label(f, text="Check #").grid(row=5, column=2, sticky="e", padx=4)
         ttk.Entry(f, textvariable=self._fld("check_number"), width=12).grid(row=5, column=3, sticky="w")
