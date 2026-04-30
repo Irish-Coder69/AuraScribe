@@ -216,6 +216,7 @@ def initialize_db():
 
     _migrate_patients_table()
     _migrate_session_notes_table()
+    _migrate_billing_records_table()
     _migrate_users_table()
     _migrate_provider_settings_table()
     _migrate_bookkeeping_tables()
@@ -264,6 +265,22 @@ def _migrate_session_notes_table():
     for col, col_def in new_columns:
         if col not in existing:
             cur.execute(f"ALTER TABLE session_notes ADD COLUMN {col} {col_def}")
+    conn.commit()
+    conn.close()
+
+
+def _migrate_billing_records_table():
+    """Add any missing columns to billing_records (forward migration)."""
+    new_columns = [
+        ("session_id", "INTEGER REFERENCES session_notes(id)"),
+        ("claim_number", "TEXT DEFAULT ''"),
+    ]
+    conn = get_connection()
+    cur = conn.cursor()
+    existing = {row[1] for row in cur.execute("PRAGMA table_info(billing_records)").fetchall()}
+    for col, col_def in new_columns:
+        if col not in existing:
+            cur.execute(f"ALTER TABLE billing_records ADD COLUMN {col} {col_def}")
     conn.commit()
     conn.close()
 
@@ -509,7 +526,22 @@ def get_billing_record(rid):
 
 def get_billing_record_for_session(session_id):
     conn = get_connection()
-    row = conn.execute("SELECT * FROM billing_records WHERE session_id=? ORDER BY id DESC LIMIT 1", (session_id,)).fetchone()
+    try:
+        row = conn.execute(
+            "SELECT * FROM billing_records WHERE session_id=? ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+    except sqlite3.OperationalError as ex:
+        conn.close()
+        if "no such column" in str(ex).lower() and "session_id" in str(ex).lower():
+            _migrate_billing_records_table()
+            conn = get_connection()
+            row = conn.execute(
+                "SELECT * FROM billing_records WHERE session_id=? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        else:
+            raise
     conn.close()
     return row
 
@@ -525,23 +557,32 @@ def get_patient_balance(pid):
 
 
 def save_billing_record(data: dict):
-    conn = get_connection()
-    cur = conn.cursor()
-    rid = data.pop("id", None)
-    cols = list(data.keys())
-    vals = list(data.values())
-    if rid is None:
-        placeholders = ",".join(["?"] * len(cols))
-        col_str = ",".join(cols)
-        cur.execute(f"INSERT INTO billing_records ({col_str}) VALUES ({placeholders})", vals)
-        rid = cur.lastrowid
-    else:
-        set_str = ",".join([f"{c}=?" for c in cols])
-        vals.append(rid)
-        cur.execute(f"UPDATE billing_records SET {set_str} WHERE id=?", vals)
-    conn.commit()
-    conn.close()
-    return rid
+    def _write_once(payload: dict):
+        conn_local = get_connection()
+        cur = conn_local.cursor()
+        rid_local = payload.pop("id", None)
+        cols_local = list(payload.keys())
+        vals_local = list(payload.values())
+        if rid_local is None:
+            placeholders = ",".join(["?"] * len(cols_local))
+            col_str = ",".join(cols_local)
+            cur.execute(f"INSERT INTO billing_records ({col_str}) VALUES ({placeholders})", vals_local)
+            rid_local = cur.lastrowid
+        else:
+            set_str = ",".join([f"{c}=?" for c in cols_local])
+            vals_local.append(rid_local)
+            cur.execute(f"UPDATE billing_records SET {set_str} WHERE id=?", vals_local)
+        conn_local.commit()
+        conn_local.close()
+        return rid_local
+
+    try:
+        return _write_once(dict(data))
+    except sqlite3.OperationalError as ex:
+        if "no such column" in str(ex).lower() and "session_id" in str(ex).lower():
+            _migrate_billing_records_table()
+            return _write_once(dict(data))
+        raise
 
 
 def delete_billing_record(rid):

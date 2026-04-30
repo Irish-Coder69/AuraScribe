@@ -1484,7 +1484,14 @@ class SessionDialog(tk.Toplevel):
             data["id"] = self.sid
         sid = db.save_session(data)
         if self.billing_var.get():
-            self._sync_billing_record(sid, pid, data)
+            try:
+                self._sync_billing_record(sid, pid, data)
+            except Exception as ex:
+                messagebox.showerror(
+                    "Billing Sync Error",
+                    f"Session was saved, but billing could not be synced:\n{ex}",
+                    parent=self,
+                )
         if self.on_save:
             self.on_save(sid)
         self.destroy()
