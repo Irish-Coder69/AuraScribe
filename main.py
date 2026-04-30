@@ -1848,12 +1848,23 @@ class SessionNotesTab(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         self._pid_filter = None
+        self._pts = []
         self._build()
-        self.refresh()
+        self._load_patient_list()
 
     def _build(self):
         tb = ttk.Frame(self, padding=(8, 6))
         tb.pack(fill="x")
+        # Patient selector row
+        pt_row = ttk.Frame(self, padding=(8, 4))
+        pt_row.pack(fill="x")
+        ttk.Label(pt_row, text="Patient:").pack(side="left")
+        self._pt_sv = tk.StringVar()
+        self._pt_cb = ttk.Combobox(pt_row, textvariable=self._pt_sv, state="readonly", width=36)
+        self._pt_cb.pack(side="left", padx=6)
+        self._pt_cb.bind("<<ComboboxSelected>>", self._on_patient_selected)
+        btn(pt_row, "All Patients", self._show_all).pack(side="left", padx=4)
+
         btn(tb, "+ New Session", self._new_session, "Accent.TButton").pack(side="left", padx=4)
         btn(tb, "Edit", self._edit_session).pack(side="left", padx=2)
         btn(tb, "Delete", self._delete_session, "Danger.TButton").pack(side="left", padx=2)
@@ -1866,9 +1877,8 @@ class SessionNotesTab(ttk.Frame):
         ttk.Entry(tb, textvariable=self._date_sv, width=12).pack(side="left", padx=4)
         ttk.Label(tb, text="(YYYY-MM-DD)").pack(side="left")
         btn(tb, "Filter", self.refresh).pack(side="left", padx=2)
-        btn(tb, "All Sessions", self._show_all).pack(side="left", padx=2)
 
-        self._pt_label = ttk.Label(tb, text="", foreground=ACCENT, font=("Calibri",10,"bold"))
+        self._pt_label = ttk.Label(tb, text="", foreground=ACCENT, font=("Calibri", 10, "bold"))
         self._pt_label.pack(side="right", padx=8)
 
         frm = ttk.Frame(self)
@@ -1901,27 +1911,49 @@ class SessionNotesTab(ttk.Frame):
         pt = db.get_patient(pid)
         if pt:
             self._pt_label.config(text=f"Showing: {pt['last_name']}, {pt['first_name']}")
+            name = f"{pt['last_name']}, {pt['first_name']}"
+            if name in self._pt_cb["values"]:
+                self._pt_sv.set(name)
         self.refresh()
 
     def _show_all(self):
         self._pid_filter = None
         self._pt_label.config(text="")
         self._date_sv.set("")
+        self._pt_sv.set("— Select Patient —")
         self.refresh()
+
+    def _load_patient_list(self):
+        self._pts = db.get_all_patients("Active") + db.get_all_patients("Inactive")
+        self._pts.sort(key=lambda p: (p["last_name"] or "", p["first_name"] or ""))
+        names = ["— Select Patient —"] + [f"{p['last_name']}, {p['first_name']}" for p in self._pts]
+        self._pt_cb["values"] = names
+        self._pt_sv.set("— Select Patient —")
+
+    def _on_patient_selected(self, event=None):
+        name = self._pt_sv.get()
+        if name == "— Select Patient —":
+            self._show_all()
+            return
+        match = next((p for p in self._pts if f"{p['last_name']}, {p['first_name']}" == name), None)
+        if match:
+            self._pid_filter = match["id"]
+            self._pt_label.config(text=f"Showing: {name}")
+            self._date_sv.set("")
+            self.refresh()
 
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         date_flt = self._date_sv.get().strip()
+        if not self._pid_filter:
+            # Blank until a patient is chosen
+            return
         if self._pid_filter:
             rows = db.get_sessions_for_patient(self._pid_filter)
             for r in rows:
                 self._insert_row(r, dict(r), r["id"])
         elif date_flt:
             rows = db.get_sessions_by_date(date_flt)
-            for i, r in enumerate(rows):
-                self._insert_row(r, dict(r), r["id"], even=i % 2 == 0)
-        else:
-            rows = db.get_recent_sessions(200)
             for i, r in enumerate(rows):
                 self._insert_row(r, dict(r), r["id"], even=i % 2 == 0)
 
