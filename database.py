@@ -500,6 +500,8 @@ def save_session(data: dict):
 
 def delete_session(sid):
     conn = get_connection()
+    # Keep billing history but unlink it from the session before deleting.
+    conn.execute("UPDATE billing_records SET session_id=NULL WHERE session_id=?", (sid,))
     conn.execute("DELETE FROM session_notes WHERE id=?", (sid,))
     conn.commit()
     conn.close()

@@ -2012,8 +2012,11 @@ class SessionNotesTab(ttk.Frame):
         if not sid:
             return
         if messagebox.askyesno("Delete", "Delete this session note?"):
-            db.delete_session(sid)
-            self.refresh()
+            try:
+                db.delete_session(sid)
+                self.refresh()
+            except Exception as ex:
+                messagebox.showerror("Delete Error", f"Could not delete session:\n{ex}", parent=self)
 
     def _to_cms(self):
         sid = self._sel_sid()
