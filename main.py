@@ -21,6 +21,12 @@ from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    from tkcalendar import DateEntry as _DateEntry
+    _HAS_CALENDAR = True
+except ImportError:
+    _HAS_CALENDAR = False
+
 import database as db
 import version_manager as vm
 from app_paths import APP_ROOT, ASSETS_DIR, DB_FILE, ICON_FILE, VERSION_FILE
@@ -1295,8 +1301,21 @@ class SessionDialog(tk.Toplevel):
         self._fld("patient_id")
 
         ttk.Label(top, text="Session Date*").grid(row=0, column=3, sticky="e", padx=4)
-        ttk.Entry(top, textvariable=self._fld("session_date"), width=12).grid(row=0, column=4, sticky="w")
-        ttk.Label(top, text="(YYYY-MM-DD)").grid(row=0, column=5, sticky="w")
+        self._fld("session_date")
+        if _HAS_CALENDAR:
+            self._date_entry = _DateEntry(
+                top,
+                textvariable=self._vars["session_date"],
+                date_pattern="yyyy-mm-dd",
+                width=12,
+                background="#2b579a",
+                foreground="white",
+                borderwidth=2,
+            )
+            self._date_entry.grid(row=0, column=4, sticky="w")
+        else:
+            ttk.Entry(top, textvariable=self._vars["session_date"], width=12).grid(row=0, column=4, sticky="w")
+            ttk.Label(top, text="(YYYY-MM-DD)").grid(row=0, column=5, sticky="w")
 
         ttk.Label(top, text="Duration (min)").grid(row=1, column=0, sticky="e", padx=4, pady=3)
         ttk.Entry(top, textvariable=self._fld("duration", "50"), width=6).grid(row=1, column=1, sticky="w")
@@ -1405,6 +1424,14 @@ class SessionDialog(tk.Toplevel):
         self._plan.insert("1.0", s["plan"] or "")
         self.signed_var.set(s["signed"] or 0)
         self.billing_var.set(1)  # Always default ON for both new and edited sessions
+        # Sync DateEntry widget to loaded date value
+        if _HAS_CALENDAR and hasattr(self, "_date_entry"):
+            sd = s["session_date"] or ""
+            try:
+                import datetime as _dt
+                self._date_entry.set_date(_dt.date.fromisoformat(sd))
+            except Exception:
+                pass
 
     def _sync_billing_record(self, sid: int, pid: int, data: dict):
         session_date = str(data.get("session_date", "") or "")
