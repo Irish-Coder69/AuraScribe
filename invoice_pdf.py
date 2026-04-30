@@ -77,10 +77,10 @@ def generate_patient_invoice(
     invoice_no = f"INV-{_as_text(patient.get('id')) or 'NA'}-{now.strftime('%Y%m%d')}"
     due_date = now.replace(day=min(now.day, 28))
     if due_date.month == now.month:
-        # Keep simple net-15 style due date without extra imports.
+        # Net-30 due date.
         from datetime import timedelta
 
-        due_date = now + timedelta(days=15)
+        due_date = now + timedelta(days=30)
 
     doc = fitz.open()
     page = doc.new_page(width=612, height=792)
@@ -168,7 +168,7 @@ def generate_patient_invoice(
 
     terms_y = min(sum_y + 108, 706)
     page.draw_rect((left, terms_y - 12, right, terms_y + 26), color=(0.86, 0.88, 0.92), fill=(0.99, 0.995, 1.0), width=0.7)
-    page.insert_text((left + 8, terms_y), "Payment Terms: Due within 15 days. Please include invoice number with payment.", fontsize=8.8, fontname="helv", color=(0.22, 0.25, 0.30))
+    page.insert_text((left + 8, terms_y), "Payment Terms: Due within 30 days. Please include invoice number with payment.", fontsize=8.8, fontname="helv", color=(0.22, 0.25, 0.30))
     page.insert_text((left + 8, terms_y + 14), "Questions? Contact the office using the phone/email listed above.", fontsize=8.8, fontname="helv", color=(0.22, 0.25, 0.30))
 
     foot_y = 760
