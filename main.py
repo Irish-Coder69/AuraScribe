@@ -1291,6 +1291,8 @@ class SessionDialog(tk.Toplevel):
             self.geometry("1100x780")
         self._vars = {}
         self._dictating = False
+        self._active_dictation_mode = None
+        self._external_dictation_proc = None
         self._dictation_stop = threading.Event()
         self._dictation_thread = None
         self._dict_pref_mode = "offline_vosk"
@@ -1524,6 +1526,20 @@ class SessionDialog(tk.Toplevel):
         db.set_app_preference("dictation.label", self._dict_pref_label)
         self._set_dictation_idle_status()
 
+    def _remove_saved_dictation_program(self, parent_window=None):
+        if not messagebox.askyesno(
+            "Remove Saved Dictation Program",
+            "Remove the saved dictation program and reset to Built-in Offline Dictation (Vosk)?",
+            parent=parent_window or self,
+        ):
+            return
+        self._save_dictation_preference("offline_vosk", "", "Built-in Offline Dictation (Vosk)")
+        messagebox.showinfo(
+            "Removed",
+            "Saved dictation program removed. Start Dictation now uses Built-in Offline Dictation (Vosk).",
+            parent=parent_window or self,
+        )
+
     def _trigger_windows_dictation_hotkey(self):
         if os.name != "nt":
             return False
@@ -1718,7 +1734,7 @@ class SessionDialog(tk.Toplevel):
         found.insert(0, ("Windows Built-in Dictation (Win+H)", ""))
         return found
 
-    def _launch_dictation_app(self, exe_path):
+    def _launch_dictation_app(self, exe_path, mark_active=False):
         try:
             p = str(exe_path or "").strip().strip('"')
             if not p:
@@ -1727,8 +1743,14 @@ class SessionDialog(tk.Toplevel):
             if os.name == "nt" and not p.lower().endswith(".exe"):
                 # Non-executable files (e.g., .cpl) should be opened via Shell.
                 os.startfile(p)
+                self._external_dictation_proc = None
             else:
-                subprocess.Popen([p])
+                self._external_dictation_proc = subprocess.Popen([p])
+
+            if mark_active:
+                self._active_dictation_mode = "external_app"
+                self._btn_start_dict.configure(state="disabled")
+                self._btn_stop_dict.configure(state="normal")
             self._dict_sv.set("Dictation: external app launched")
         except Exception as ex:
             messagebox.showerror("Launch Failed", f"Could not launch:\n{exe_path}\n\n{ex}", parent=self)
@@ -1855,6 +1877,11 @@ class SessionDialog(tk.Toplevel):
             messagebox.showinfo("Saved", "Default dictation method set to Built-in Offline Dictation (Vosk).", parent=win)
 
         btn(frm, "Use Built-in Offline Dictation by Default", _use_offline_vosk_default).pack(anchor="w", pady=(0, 6))
+        btn(
+            frm,
+            "Remove Saved Dictation Program",
+            lambda: self._remove_saved_dictation_program(win),
+        ).pack(anchor="w", pady=(0, 6))
 
         btn(frm, "Browse for Dictation App…", self._browse_and_launch_dictation).pack(
             anchor="w", pady=(0, 8)
@@ -1929,6 +1956,7 @@ class SessionDialog(tk.Toplevel):
 
     def _on_dictation_stopped(self):
         self._dictating = False
+        self._active_dictation_mode = None
         self._dictation_stop.set()
         self._btn_start_dict.configure(state="normal")
         self._btn_stop_dict.configure(state="disabled")
@@ -1936,12 +1964,15 @@ class SessionDialog(tk.Toplevel):
             self._set_dictation_idle_status()
 
     def _start_dictation(self):
-        if self._dictating:
+        if self._dictating or self._active_dictation_mode:
             return
         mode = (self._dict_pref_mode or "offline_vosk").strip().lower()
 
         if mode == "windows_builtin":
             if self._trigger_windows_dictation_hotkey():
+                self._active_dictation_mode = "windows_builtin"
+                self._btn_start_dict.configure(state="disabled")
+                self._btn_stop_dict.configure(state="normal")
                 self._dict_sv.set("Dictation: Windows built-in listening")
             else:
                 self._show_system_dictation_help()
@@ -1949,7 +1980,7 @@ class SessionDialog(tk.Toplevel):
 
         if mode == "external_app":
             if self._dict_pref_path:
-                self._launch_dictation_app(self._dict_pref_path)
+                self._launch_dictation_app(self._dict_pref_path, mark_active=True)
                 self._dict_sv.set("Dictation: external app started. Speak there, then click Paste Dictation.")
                 return
             messagebox.showinfo(
@@ -1987,10 +2018,35 @@ class SessionDialog(tk.Toplevel):
         self._dictation_thread.start()
 
     def _stop_dictation(self):
-        if not self._dictating:
+        if self._dictating:
+            self._dict_sv.set("Dictation: stopping...")
+            self._dictation_stop.set()
             return
-        self._dict_sv.set("Dictation: stopping...")
-        self._dictation_stop.set()
+
+        if self._active_dictation_mode == "windows_builtin":
+            # Win+H toggles Windows dictation on/off.
+            self._trigger_windows_dictation_hotkey()
+            self._active_dictation_mode = None
+            self._btn_start_dict.configure(state="normal")
+            self._btn_stop_dict.configure(state="disabled")
+            self._set_dictation_idle_status()
+            return
+
+        if self._active_dictation_mode == "external_app":
+            proc = self._external_dictation_proc
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            self._external_dictation_proc = None
+            self._active_dictation_mode = None
+            self._btn_start_dict.configure(state="normal")
+            self._btn_stop_dict.configure(state="disabled")
+            self._set_dictation_idle_status()
+            return
+
+        self._set_dictation_idle_status()
 
     def _close_dialog(self):
         self._stop_dictation()
