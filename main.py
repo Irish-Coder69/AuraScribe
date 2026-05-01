@@ -1353,6 +1353,7 @@ class SessionDialog(tk.Toplevel):
         ttk.Entry(top, textvariable=self._fld("cpt_modifier"), width=6).grid(row=2, column=3, sticky="w")
         ttk.Label(top, text="Fee ($)").grid(row=2, column=4, sticky="e", padx=4)
         ttk.Entry(top, textvariable=self._fld("fee", "0.00"), width=10).grid(row=2, column=5, sticky="w")
+        btn(top, "Dictation Settings", self._open_dictation_settings).grid(row=2, column=6, columnspan=2, sticky="e", padx=4)
 
         # Diagnoses row
         dx_frame = lframe(self, "Diagnoses")
@@ -1524,6 +1525,12 @@ class SessionDialog(tk.Toplevel):
         win.resizable(True, True)
         win.transient(self)
         win.grab_set()
+        win.update_idletasks()
+        px = self.winfo_rootx() + max(20, (self.winfo_width() - 720) // 2)
+        py = self.winfo_rooty() + max(20, (self.winfo_height() - 420) // 2)
+        win.geometry(f"720x420+{px}+{py}")
+        win.lift()
+        win.focus_force()
 
         frm = ttk.Frame(win, padding=12)
         frm.pack(fill="both", expand=True)
