@@ -1,16 +1,42 @@
 from __future__ import annotations
 
+# ─── TheraTrak Pro – License Key Generator (PRIVATE TOOL – DO NOT DISTRIBUTE) ─
+# Uses Ed25519 asymmetric signing.
+# The private key below stays here ONLY.  The app ships the public key only.
+
 import argparse
 import base64
 import hashlib
-import hmac
 import json
 import os
 import re
 import uuid
 from datetime import UTC, date, datetime
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+
 LICENSE_KEY_PREFIX = "THP1"
+
+# ── Ed25519 key pair ──────────────────────────────────────────────────────────
+# Private key – NEVER ship this in the application binary.
+_PRIVATE_KEY_RAW: bytes = bytes.fromhex(
+    "46fe3a57dac8cd3f25532e2fb1d6ebc6175b3b6c3b9864ca14a8c8b9adf05f14"
+)
+# Public key – the matching bytes embedded in main.py for verification.
+_PUBLIC_KEY_RAW: bytes = bytes.fromhex(
+    "557ecad262753de008f00bfba843d01e086344ea13e90afb6b90fd4b601a87d1"
+)
+
+
+def _private_key() -> Ed25519PrivateKey:
+    return Ed25519PrivateKey.from_private_bytes(_PRIVATE_KEY_RAW)
+
+
+def _public_key() -> Ed25519PublicKey:
+    return Ed25519PublicKey.from_public_bytes(_PUBLIC_KEY_RAW)
 
 
 def b64u_encode(raw: bytes) -> str:
@@ -20,10 +46,6 @@ def b64u_encode(raw: bytes) -> str:
 def b64u_decode(raw: str) -> bytes:
     padded = raw + ("=" * ((4 - len(raw) % 4) % 4))
     return base64.urlsafe_b64decode(padded.encode("ascii"))
-
-
-def license_signing_secret() -> str:
-    return os.environ.get("THERATRAK_LICENSE_SECRET", "THERATRAK-PRO-LICENSE-CHANGE-THIS")
 
 
 def current_machine_code() -> str:
@@ -37,7 +59,7 @@ def current_machine_code() -> str:
 
 def build_license_key(name: str, email: str, machine_code: str = "", expires: str = "") -> str:
     payload = {
-        "v": 1,
+        "v": 2,
         "n": (name or "").strip(),
         "e": (email or "").strip().lower(),
         "mc": (machine_code or "").strip().upper(),
@@ -45,7 +67,7 @@ def build_license_key(name: str, email: str, machine_code: str = "", expires: st
         "iat": datetime.now(UTC).strftime("%Y-%m-%d"),
     }
     payload_raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    sig = hmac.new(license_signing_secret().encode("utf-8"), payload_raw, hashlib.sha256).digest()[:16]
+    sig = _private_key().sign(payload_raw)  # 64-byte Ed25519 signature
     return f"{LICENSE_KEY_PREFIX}.{b64u_encode(payload_raw)}.{b64u_encode(sig)}"
 
 
@@ -61,9 +83,10 @@ def validate_license_key(license_key: str, machine_code: str) -> tuple[bool, str
     except Exception:
         return False, "License key payload could not be decoded.", {}
 
-    expected = hmac.new(license_signing_secret().encode("utf-8"), payload_raw, hashlib.sha256).digest()[:16]
-    if not hmac.compare_digest(sig, expected):
-        return False, "License key signature is invalid.", {}
+        try:
+            _public_key().verify(sig, payload_raw)
+        except Exception:
+            return False, "License key signature is invalid.", {}
 
     try:
         payload = json.loads(payload_raw.decode("utf-8"))

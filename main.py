@@ -56,6 +56,13 @@ except Exception:
     ImageTk = None
     PDF_RENDER_AVAILABLE = False
 
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey as _Ed25519PublicKey
+    _HAS_ED25519 = True
+except Exception:
+    _Ed25519PublicKey = None  # type: ignore[assignment,misc]
+    _HAS_ED25519 = False
+
 # ─── Colour / Style constants ──────────────────────────────────────────────────
 
 BG       = "#f0f4f8"
@@ -274,9 +281,11 @@ def _b64u_decode(raw: str) -> bytes:
     return base64.urlsafe_b64decode(padded.encode("ascii"))
 
 
-def _license_signing_secret() -> str:
-    # Override in production via environment variable at build/runtime.
-    return os.environ.get("THERATRAK_LICENSE_SECRET", "THERATRAK-PRO-LICENSE-CHANGE-THIS")
+# Ed25519 public key – used only for license signature verification.
+# The private key is NEVER present in the application binary.
+_LICENSE_PUBLIC_KEY: bytes = bytes.fromhex(
+    "557ecad262753de008f00bfba843d01e086344ea13e90afb6b90fd4b601a87d1"
+)
 
 
 def _current_machine_code() -> str:
@@ -305,12 +314,11 @@ def _validate_license_key(license_key: str, machine_code: str) -> tuple[bool, st
     except Exception:
         return False, "License key payload could not be decoded.", {}
 
-    expected_sig = hmac.new(
-        _license_signing_secret().encode("utf-8"),
-        payload_raw,
-        hashlib.sha256,
-    ).digest()[:16]
-    if not hmac.compare_digest(signature_raw, expected_sig):
+    if not _HAS_ED25519 or _Ed25519PublicKey is None:
+        return False, "License key signature is invalid.", {}
+    try:
+        _Ed25519PublicKey.from_public_bytes(_LICENSE_PUBLIC_KEY).verify(signature_raw, payload_raw)
+    except Exception:
         return False, "License key signature is invalid.", {}
 
     try:
@@ -6601,6 +6609,24 @@ class TheraTrakApp(tk.Tk):
             days_left = self._get_trial_days_left()
             ttk.Label(frm, text=f"Trial Remaining: {days_left} day(s)").grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 2))
 
+            # Pricing info ──────────────────────────────────────────────────
+            price_frm = ttk.LabelFrame(frm, text="Pricing", padding=8)
+            price_frm.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+            ttk.Label(price_frm, text="Solo Practice", font=FONT_LG).grid(row=0, column=0, sticky="w")
+            ttk.Label(price_frm, text="$49 / month   (1 provider)").grid(row=0, column=1, sticky="w", padx=(12, 0))
+            ttk.Label(price_frm, text="Group Practice", font=FONT_LG).grid(row=1, column=0, sticky="w", pady=(4, 0))
+            ttk.Label(price_frm, text="$129 / month   (up to 5 providers)").grid(row=1, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
+            ttk.Label(price_frm, text="14-day free trial included with every new installation.",
+                      foreground=MUTED).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+            def _open_purchase():
+                webbrowser.open("https://github.com/Irish-Coder69/TheraTrak-Pro/releases/latest")
+
+            ttk.Button(price_frm, text="Purchase License \u2192", command=_open_purchase).grid(
+                row=3, column=0, columnspan=2, sticky="w", pady=(8, 0)
+            )
+            # ────────────────────────────────────────────────────────────────
+
         ttk.Label(frm, text="Machine Code:").grid(row=4, column=0, sticky="w", pady=(8, 2))
         machine_var = tk.StringVar(value=machine_code)
         machine_entry = ttk.Entry(frm, textvariable=machine_var, width=28, state="readonly")
@@ -6676,6 +6702,9 @@ class TheraTrakApp(tk.Tk):
                 "Trial Mode",
                 "TheraTrak Pro is running in trial mode.\n\n"
                 f"Days remaining: {days_left}\n\n"
+                "Pricing:\n"
+                "  Solo Practice  —  $49 / month  (1 provider)\n"
+                "  Group Practice  —  $129 / month  (up to 5 providers)\n\n"
                 "Activate your license key now?",
                 parent=self,
             ):

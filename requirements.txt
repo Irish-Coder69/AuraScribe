@@ -4,3 +4,4 @@ pillow>=10.4.0
 tkcalendar>=1.6.1
 sounddevice>=0.4.6
 vosk>=0.3.45
+cryptography>=42.0.0
