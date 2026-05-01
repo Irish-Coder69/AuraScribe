@@ -10,7 +10,7 @@ import json
 import ctypes
 from uuid import UUID
 from pathlib import Path
-from tkinter import Tk, messagebox
+from tkinter import DoubleVar, Tk, Toplevel, StringVar, messagebox, ttk
 
 
 APP_NAME = "TheraTrak Pro"
@@ -283,14 +283,45 @@ def main() -> int:
     root.withdraw()
     root.attributes("-topmost", True)   # ensure all dialogs appear in front
 
+    progress_window = Toplevel(root)
+    progress_window.title(f"Installing {APP_NAME}")
+    progress_window.resizable(False, False)
+    progress_window.attributes("-topmost", True)
+    progress_window.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    status_var = StringVar(value="Preparing installer...")
+    status_label = ttk.Label(progress_window, textvariable=status_var, width=56)
+    status_label.pack(padx=16, pady=(14, 8))
+
+    progress_var = DoubleVar(value=0)
+    progress_bar = ttk.Progressbar(
+        progress_window,
+        orient="horizontal",
+        mode="determinate",
+        length=460,
+        maximum=100,
+        variable=progress_var,
+    )
+    progress_bar.pack(padx=16, pady=(0, 14))
+
+    progress_window.update_idletasks()
+
+    def set_progress(percent: float, status: str) -> None:
+        progress_var.set(max(0, min(100, percent)))
+        status_var.set(status)
+        progress_window.update_idletasks()
+
     source = bundled_dir()
     target = install_dir()
+    set_progress(5, "Preparing installation folders...")
     target.mkdir(parents=True, exist_ok=True)
     _stop_running_app()
 
     app_bundle = source / APP_BUNDLE_DIR
+    set_progress(10, "Validating installer payload...")
     python_dll_rel = _find_bundled_python_dll(app_bundle)
     if python_dll_rel is None:
+        progress_window.destroy()
         messagebox.showerror(
             APP_NAME,
             "Install failed. Installer payload is incomplete (missing _internal\\python3xx.dll).\n"
@@ -301,10 +332,18 @@ def main() -> int:
 
     try:
         if app_bundle.exists() and app_bundle.is_dir():
-            for item in app_bundle.iterdir():
+            items = list(app_bundle.iterdir())
+            item_count = max(1, len(items))
+            for index, item in enumerate(items, start=1):
+                set_progress(
+                    10 + (50 * (index - 1) / item_count),
+                    f"Copying app files ({index}/{item_count}): {item.name}",
+                )
                 destination = target / item.name
                 _copy_with_retries(item, destination)
+            set_progress(60, "Application files copied.")
     except Exception as ex:
+        progress_window.destroy()
         messagebox.showerror(
             APP_NAME,
             "Install failed while copying application files.\n"
@@ -314,6 +353,7 @@ def main() -> int:
         root.destroy()
         return 1
 
+    set_progress(65, "Copying installer support files...")
     for name in (UNINSTALL_EXE, ICON_FILE, VERSION_FILE):
         src = source / name
         if src.exists():
@@ -327,6 +367,7 @@ def main() -> int:
 
     # Extra safeguard: if the runtime DLL is still missing, try one focused recopy.
     if not target_python_dll.exists():
+        set_progress(70, "Verifying runtime components...")
         src_internal = app_bundle / "_internal"
         if src_internal.exists() and src_internal.is_dir():
             _copy_with_retries(src_internal, target / "_internal")
@@ -339,12 +380,15 @@ def main() -> int:
     ]
     missing = [label for label, p in required if not p.exists()]
     if missing:
+        progress_window.destroy()
         messagebox.showerror(APP_NAME, f"Install failed. Missing files: {', '.join(missing)}")
         root.destroy()
         return 1
 
+    set_progress(75, "Registering uninstall command...")
     uninstall_cmd_path = write_uninstall_cmd(target)
 
+    set_progress(82, "Cleaning old shortcuts...")
     desktop = desktop_dir()
     programs_dirs = start_menu_program_dirs()
     for programs_dir in programs_dirs:
@@ -361,6 +405,7 @@ def main() -> int:
     start_menu_dir = programs_dirs[0] / APP_NAME
     start_menu_dir.mkdir(parents=True, exist_ok=True)
 
+    set_progress(90, "Creating desktop and Start Menu shortcuts...")
     create_shortcut(desktop / f"{APP_NAME}.lnk", exe_path, exe_path, target)
     create_shortcut(start_menu_dir / f"{APP_NAME}.lnk", exe_path, exe_path, target)
     create_shortcut(
@@ -370,7 +415,10 @@ def main() -> int:
         target,
         arguments=f'/c ""{uninstall_cmd_path}""',
     )
+    set_progress(97, "Writing uninstall registry entries...")
     write_uninstall_registry(target, uninstall_cmd_path, get_display_version(target / VERSION_FILE))
+    set_progress(100, "Installation complete.")
+    progress_window.destroy()
 
     messagebox.showinfo(
         APP_NAME,
