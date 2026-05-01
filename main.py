@@ -1283,8 +1283,12 @@ class SessionDialog(tk.Toplevel):
         self.pid = pid
         self.on_save = on_save
         self.title("Edit Session" if sid else "New Session Note")
-        self.geometry("780x700")
         self.resizable(True, True)
+        self.update_idletasks()
+        try:
+            self.state("zoomed")
+        except Exception:
+            self.geometry("1100x780")
         self._vars = {}
         self._dictating = False
         self._dictation_stop = threading.Event()
@@ -1527,6 +1531,106 @@ class SessionDialog(tk.Toplevel):
         self._insert_text_into_selected_target(text)
         self._dict_sv.set("Dictation: pasted from clipboard")
 
+    @staticmethod
+    def _find_dictation_apps():
+        """Search for installed dictation apps on Windows. Returns list of (label, exe_path)."""
+        found = []
+        if os.name != "nt":
+            return found
+        import winreg
+
+        # Known dictation executables to search for
+        candidates = [
+            ("Dragon NaturallySpeaking", ["natspeak.exe", "dragon.exe", "dragonbar.exe"]),
+            ("Dragon Home / Professional", ["natspeak.exe", "dragon.exe"]),
+            ("Windows Speech Recognition", ["speechux.exe"]),
+            ("Whisper Dictate", ["whisper-dictate.exe", "whisperdictate.exe"]),
+            ("SpeechNotes", ["speechnotes.exe"]),
+            ("Otter.ai Desktop", ["otter.exe"]),
+        ]
+
+        # Locations to scan
+        search_roots = []
+        for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA", "APPDATA"):
+            p = os.environ.get(env)
+            if p:
+                search_roots.append(Path(p))
+
+        located = set()
+        for label, exes in candidates:
+            for root in search_roots:
+                for exe in exes:
+                    # Walk one level of subfolders only (fast)
+                    try:
+                        for sub in [root] + list(root.iterdir()):
+                            if not sub.is_dir():
+                                continue
+                            candidate_path = sub / exe
+                            if candidate_path.exists() and str(candidate_path) not in located:
+                                located.add(str(candidate_path))
+                                found.append((label, str(candidate_path)))
+                            # One more level deep
+                            try:
+                                for sub2 in sub.iterdir():
+                                    if not sub2.is_dir():
+                                        continue
+                                    p2 = sub2 / exe
+                                    if p2.exists() and str(p2) not in located:
+                                        located.add(str(p2))
+                                        found.append((label, str(p2)))
+                            except PermissionError:
+                                pass
+                    except (PermissionError, NotADirectoryError):
+                        pass
+
+        # Also check App Paths registry
+        try:
+            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"
+            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                try:
+                    with winreg.OpenKey(hive, key_path) as base:
+                        i = 0
+                        while True:
+                            try:
+                                sub_name = winreg.EnumKey(base, i)
+                                i += 1
+                                name_lower = sub_name.lower()
+                                for label, exes in candidates:
+                                    if any(e.lower() in name_lower for e in exes):
+                                        try:
+                                            with winreg.OpenKey(base, sub_name) as sk:
+                                                val, _ = winreg.QueryValueEx(sk, "")
+                                                val = str(val).strip('"')
+                                                if Path(val).exists() and val not in located:
+                                                    located.add(val)
+                                                    found.append((label, val))
+                                        except OSError:
+                                            pass
+                            except OSError:
+                                break
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+        return found
+
+    def _launch_dictation_app(self, exe_path):
+        try:
+            subprocess.Popen([exe_path])
+            self._dict_sv.set("Dictation: external app launched")
+        except Exception as ex:
+            messagebox.showerror("Launch Failed", f"Could not launch:\n{exe_path}\n\n{ex}", parent=self)
+
+    def _browse_and_launch_dictation(self):
+        path = filedialog.askopenfilename(
+            title="Select Dictation Software",
+            filetypes=[("Executable", "*.exe"), ("All files", "*.*")],
+            parent=self,
+        )
+        if path:
+            self._launch_dictation_app(path)
+
     def _show_system_dictation_help(self):
         lines = [
             "Use Any Dictation Software",
@@ -1536,14 +1640,15 @@ class SessionDialog(tk.Toplevel):
             "- Any external/platform dictation app via clipboard + 'Paste Dictation'.",
             "",
             "Common platform shortcuts:",
-            "- Windows: Win + H",
+            "- Windows: Win + H  (built-in Windows dictation — works everywhere)",
             "- macOS: Press Fn twice (if enabled in Keyboard settings)",
             "",
             "Workflow:",
             "1) Select 'Dictate To' destination.",
-            "2) Run your preferred dictation software.",
-            "3) Copy transcript to clipboard.",
-            "4) Click 'Paste Dictation' in Session Note.",
+            "2) Run your preferred dictation software (or use Dictation Settings > Launch).",
+            "3) Dictate your text.",
+            "4) Copy transcript to clipboard if needed.",
+            "5) Click 'Paste Dictation' in Session Note.",
         ]
         messagebox.showinfo("Dictation Help", "\n".join(lines), parent=self)
 
@@ -1564,26 +1669,67 @@ class SessionDialog(tk.Toplevel):
         win = tk.Toplevel(self)
         apply_window_icon(win)
         win.title("Dictation Settings")
-        win.geometry("720x420")
+        win.geometry("760x620")
         win.resizable(True, True)
         win.transient(self)
         win.grab_set()
         win.update_idletasks()
-        px = self.winfo_rootx() + max(20, (self.winfo_width() - 720) // 2)
-        py = self.winfo_rooty() + max(20, (self.winfo_height() - 420) // 2)
-        win.geometry(f"720x420+{px}+{py}")
+        px = self.winfo_rootx() + max(20, (self.winfo_width() - 760) // 2)
+        py = self.winfo_rooty() + max(20, (self.winfo_height() - 620) // 2)
+        win.geometry(f"760x620+{px}+{py}")
         win.lift()
         win.focus_force()
 
         frm = ttk.Frame(win, padding=12)
         frm.pack(fill="both", expand=True)
 
-        ttk.Label(frm, text="Offline Dictation Setup", font=FONT_LG).pack(anchor="w")
+        ttk.Label(frm, text="Dictation Settings", font=FONT_LG).pack(anchor="w")
         ttk.Label(frm, text=f"Status: {status}", foreground=MUTED).pack(anchor="w", pady=(4, 8))
-        ttk.Label(frm, text=f"Models Folder: {VOSK_MODELS_DIR}").pack(anchor="w", pady=(0, 6))
 
-        info = tk.Text(frm, height=12, wrap="word", relief="solid", borderwidth=1)
-        info.pack(fill="both", expand=True)
+        # ── Installed dictation apps ──────────────────────────────────────
+        ttk.Label(frm, text="Detected Dictation Software:", font=FONT_SM).pack(anchor="w", pady=(0, 2))
+        app_frame = ttk.Frame(frm)
+        app_frame.pack(fill="x", pady=(0, 6))
+
+        detected = self._find_dictation_apps()
+        if detected:
+            app_var = tk.StringVar(value=detected[0][1])
+            app_labels = {f"{label}  —  {Path(exe).name}": exe for label, exe in detected}
+            app_combo = ttk.Combobox(
+                app_frame,
+                values=list(app_labels.keys()),
+                state="readonly",
+                width=52,
+            )
+            app_combo.current(0)
+            app_combo.pack(side="left", padx=(0, 6))
+
+            def _launch_selected():
+                sel = app_combo.get()
+                exe = app_labels.get(sel)
+                if exe:
+                    self._launch_dictation_app(exe)
+                    win.destroy()
+
+            btn(app_frame, "Launch", _launch_selected).pack(side="left")
+        else:
+            ttk.Label(
+                app_frame,
+                text="No installed dictation apps detected automatically.",
+                foreground=MUTED,
+            ).pack(side="left")
+
+        btn(frm, "Browse for Dictation App…", self._browse_and_launch_dictation).pack(
+            anchor="w", pady=(0, 8)
+        )
+
+        # ── Offline Vosk status ───────────────────────────────────────────
+        ttk.Separator(frm, orient="horizontal").pack(fill="x", pady=4)
+        ttk.Label(frm, text="Built-in Offline Dictation (Vosk):", font=FONT_SM).pack(anchor="w", pady=(0, 2))
+        ttk.Label(frm, text=f"Models Folder: {VOSK_MODELS_DIR}").pack(anchor="w", pady=(0, 4))
+
+        info = tk.Text(frm, height=7, wrap="word", relief="solid", borderwidth=1)
+        info.pack(fill="x")
         lines = ["Checks:"]
         lines.extend([f"- {line}" for line in details])
         lines.append("")
@@ -1594,7 +1740,7 @@ class SessionDialog(tk.Toplevel):
             lines.append("- None. Dictation is ready to use.")
         lines.append("")
         lines.append("Model Tip:")
-        lines.append("- Place an extracted model folder named like 'vosk-model-...' under the models folder above.")
+        lines.append("- Place an extracted vosk-model-* folder under the models folder above.")
         info.insert("1.0", "\n".join(lines))
         info.configure(state="disabled")
 
