@@ -8,10 +8,12 @@ Python 3.10+  ·  Tkinter + ttk  ·  SQLite backend
 import json
 import io
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import traceback
 import tkinter as tk
 import tkinter.font as tkFont
@@ -26,6 +28,15 @@ try:
     _HAS_CALENDAR = True
 except ImportError:
     _HAS_CALENDAR = False
+
+try:
+    import sounddevice as _sd  # type: ignore[import-not-found]
+    import vosk as _vosk  # type: ignore[import-not-found]
+    _HAS_OFFLINE_STT = True
+except Exception:
+    _sd = None
+    _vosk = None
+    _HAS_OFFLINE_STT = False
 
 import database as db
 import version_manager as vm
@@ -78,6 +89,7 @@ GITHUB_RELEASES_PAGE = "https://github.com/Irish-Coder69/TheraTrak-Pro/releases/
 UPDATE_TEMP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Temp" / "TheraTrakUpdates"
 STARTUP_LOG_FILE = APP_ROOT / "startup.log"
 CMS_TEMPLATE_FILE = APP_ROOT / "CMS1500_template.pdf"
+VOSK_MODELS_DIR = APP_ROOT / "models"
 CMS_BACK_TEMPLATE_CANDIDATES = (
     APP_ROOT / "CMS1500_template_back.pdf",
     APP_ROOT / "CMS 1500_templete_back.pdf",
@@ -1274,6 +1286,9 @@ class SessionDialog(tk.Toplevel):
         self.geometry("780x700")
         self.resizable(True, True)
         self._vars = {}
+        self._dictating = False
+        self._dictation_stop = threading.Event()
+        self._dictation_thread = None
         self._build()
         if sid:
             self._load()
@@ -1281,6 +1296,7 @@ class SessionDialog(tk.Toplevel):
             self._vars["patient_id"].set(str(pid))
             import datetime as _dt
             self._vars["session_date"].set(_dt.date.today().strftime("%m/%d/%Y"))
+        self.protocol("WM_DELETE_WINDOW", self._close_dialog)
         self.grab_set()
 
     def _fld(self, name, default=""):
@@ -1385,8 +1401,119 @@ class SessionDialog(tk.Toplevel):
             text="Create/Update Billing Record on Save",
             variable=self.billing_var,
         ).pack(side="left", padx=10)
+        self._dict_sv = tk.StringVar(value="Dictation: idle")
+        self._btn_start_dict = btn(bot, "Start Dictation", self._start_dictation)
+        self._btn_start_dict.pack(side="left", padx=6)
+        self._btn_stop_dict = btn(bot, "Stop Dictation", self._stop_dictation)
+        self._btn_stop_dict.pack(side="left", padx=2)
+        self._btn_stop_dict.configure(state="disabled")
+        ttk.Label(bot, textvariable=self._dict_sv, foreground=MUTED).pack(side="left", padx=8)
         btn(bot, "Save Session", self._save, "Accent.TButton").pack(side="right", padx=6)
         btn(bot, "Cancel", self.destroy).pack(side="right")
+
+    def _find_vosk_model(self):
+        if not VOSK_MODELS_DIR.exists():
+            return None
+        for p in sorted(VOSK_MODELS_DIR.iterdir()):
+            if p.is_dir() and p.name.lower().startswith("vosk-model"):
+                return p
+        return None
+
+    def _append_dictation_text(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
+        current = self._nt.get("1.0", "end-1c").strip()
+        prefix = "\n" if current else ""
+        self._nt.insert("end", f"{prefix}{text}")
+        self._nt.see("end")
+
+    def _dictation_worker(self, model_dir):
+        q = queue.Queue()
+
+        def _audio_callback(indata, frames, time_info, status):
+            if self._dictation_stop.is_set():
+                return
+            q.put(bytes(indata))
+
+        try:
+            model = _vosk.Model(str(model_dir))
+            rec = _vosk.KaldiRecognizer(model, 16000)
+
+            with _sd.RawInputStream(
+                samplerate=16000,
+                blocksize=8000,
+                dtype="int16",
+                channels=1,
+                callback=_audio_callback,
+            ):
+                while not self._dictation_stop.is_set():
+                    try:
+                        data = q.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+                    if rec.AcceptWaveform(data):
+                        result = json.loads(rec.Result())
+                        text = (result.get("text") or "").strip()
+                        if text:
+                            self.after(0, self._append_dictation_text, text)
+
+                final_result = json.loads(rec.FinalResult())
+                final_text = (final_result.get("text") or "").strip()
+                if final_text:
+                    self.after(0, self._append_dictation_text, final_text)
+        except Exception as ex:
+            self.after(0, self._dict_sv.set, f"Dictation error: {ex}")
+        finally:
+            self.after(0, self._on_dictation_stopped)
+
+    def _on_dictation_stopped(self):
+        self._dictating = False
+        self._dictation_stop.set()
+        self._btn_start_dict.configure(state="normal")
+        self._btn_stop_dict.configure(state="disabled")
+        if not self._dict_sv.get().startswith("Dictation error"):
+            self._dict_sv.set("Dictation: idle")
+
+    def _start_dictation(self):
+        if self._dictating:
+            return
+        if not _HAS_OFFLINE_STT:
+            messagebox.showerror(
+                "Offline Dictation Unavailable",
+                "Offline dictation requires local packages 'vosk' and 'sounddevice'.",
+                parent=self,
+            )
+            return
+        model_dir = self._find_vosk_model()
+        if not model_dir:
+            messagebox.showerror(
+                "Model Not Found",
+                "Place a Vosk model folder under APP_ROOT/models (e.g., models/vosk-model-small-en-us-0.15).",
+                parent=self,
+            )
+            return
+        self._dictation_stop.clear()
+        self._dictating = True
+        self._dict_sv.set("Dictation: listening...")
+        self._btn_start_dict.configure(state="disabled")
+        self._btn_stop_dict.configure(state="normal")
+        self._dictation_thread = threading.Thread(
+            target=self._dictation_worker,
+            args=(model_dir,),
+            daemon=True,
+        )
+        self._dictation_thread.start()
+
+    def _stop_dictation(self):
+        if not self._dictating:
+            return
+        self._dict_sv.set("Dictation: stopping...")
+        self._dictation_stop.set()
+
+    def _close_dialog(self):
+        self._stop_dictation()
+        self.destroy()
 
     def _load_patients(self):
         self._pts = db.get_all_patients("Active")
