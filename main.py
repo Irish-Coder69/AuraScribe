@@ -4554,6 +4554,335 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self.destroy()
 
 
+
+# ─── Appointment Book ──────────────────────────────────────────────────────────
+
+APPT_STATUSES = ["Scheduled", "Completed", "No-Show", "Cancelled", "Rescheduled"]
+APPT_TIMES = [
+    f"{h:02d}:{m:02d} {'AM' if h < 12 else 'PM'}"
+    for h in list(range(6, 12)) + list(range(12, 21))
+    for m in (0, 15, 30, 45)
+]
+
+
+def _fmt_appt_time(t):
+    """Convert HH:MM to 12-hour display, pass through anything else."""
+    if not t:
+        return ""
+    import datetime as _dt
+    for fmt in ("%H:%M %p", "%H:%M", "%I:%M %p"):
+        try:
+            return _dt.datetime.strptime(t.strip(), fmt).strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            pass
+    return t
+
+
+class AppointmentDialog(tk.Toplevel):
+    """Add / Edit appointment dialog."""
+
+    def __init__(self, parent, appt_id=None, prefill_date=None, on_save=None):
+        super().__init__(parent)
+        self.title("New Appointment" if appt_id is None else "Edit Appointment")
+        self.resizable(False, False)
+        self.grab_set()
+        self._appt_id = appt_id
+        self._on_save = on_save
+        self._pts = db.get_all_patients("Active")
+        self._build(prefill_date)
+        if appt_id:
+            self._load(appt_id)
+        self.after(50, self._center)
+
+    def _center(self):
+        self.update_idletasks()
+        w, h = self.winfo_width(), self.winfo_height()
+        x = self.master.winfo_rootx() + (self.master.winfo_width() - w) // 2
+        y = self.master.winfo_rooty() + (self.master.winfo_height() - h) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _build(self, prefill_date):
+        f = ttk.Frame(self, padding=14)
+        f.pack(fill="both", expand=True)
+
+        ttk.Label(f, text="Patient: *").grid(row=0, column=0, sticky="e", padx=(0, 6), pady=4)
+        self._pt_sv = tk.StringVar()
+        names = ["— Select Patient —"] + [f"{p['last_name']}, {p['first_name']}" for p in self._pts]
+        self._pt_cb = ttk.Combobox(f, textvariable=self._pt_sv, values=names, state="readonly", width=34)
+        self._pt_cb.set("— Select Patient —")
+        self._pt_cb.grid(row=0, column=1, columnspan=3, sticky="w", pady=4)
+
+        ttk.Label(f, text="Date: *").grid(row=1, column=0, sticky="e", padx=(0, 6), pady=4)
+        self._date_sv = tk.StringVar(value=prefill_date or date.today().strftime("%m/%d/%Y"))
+        ttk.Entry(f, textvariable=self._date_sv, width=14).grid(row=1, column=1, sticky="w", pady=4)
+        ttk.Label(f, text="(MM/DD/YYYY)", foreground=MUTED).grid(row=1, column=2, sticky="w")
+
+        ttk.Label(f, text="Time:").grid(row=2, column=0, sticky="e", padx=(0, 6), pady=4)
+        self._time_sv = tk.StringVar(value="09:00 AM")
+        ttk.Combobox(f, textvariable=self._time_sv, values=APPT_TIMES, width=12).grid(row=2, column=1, sticky="w", pady=4)
+
+        ttk.Label(f, text="Duration (min):").grid(row=2, column=2, sticky="e", padx=(10, 6), pady=4)
+        self._dur_sv = tk.StringVar(value="50")
+        ttk.Combobox(f, textvariable=self._dur_sv,
+                     values=["15", "30", "45", "50", "60", "75", "90", "120"],
+                     width=6, state="readonly").grid(row=2, column=3, sticky="w", pady=4)
+
+        ttk.Label(f, text="Type:").grid(row=3, column=0, sticky="e", padx=(0, 6), pady=4)
+        self._type_sv = tk.StringVar(value="Individual")
+        ttk.Combobox(f, textvariable=self._type_sv, values=SESSION_TYPES,
+                     state="readonly", width=22).grid(row=3, column=1, sticky="w", pady=4)
+
+        ttk.Label(f, text="Status:").grid(row=3, column=2, sticky="e", padx=(10, 6), pady=4)
+        self._status_sv = tk.StringVar(value="Scheduled")
+        ttk.Combobox(f, textvariable=self._status_sv, values=APPT_STATUSES,
+                     state="readonly", width=14).grid(row=3, column=3, sticky="w", pady=4)
+
+        ttk.Label(f, text="Notes:").grid(row=4, column=0, sticky="ne", padx=(0, 6), pady=4)
+        self._notes_txt = tk.Text(f, width=46, height=4, font=FONT_UI, wrap="word")
+        self._notes_txt.grid(row=4, column=1, columnspan=3, sticky="ew", pady=4)
+
+        bf = ttk.Frame(f)
+        bf.grid(row=5, column=0, columnspan=4, pady=(10, 0))
+        btn(bf, "Save", self._save, "Accent.TButton").pack(side="left", padx=6)
+        btn(bf, "Cancel", self.destroy).pack(side="left", padx=6)
+
+    def _load(self, appt_id):
+        a = db.get_appointment(appt_id)
+        if not a:
+            return
+        pt = db.get_patient(a["patient_id"])
+        if pt:
+            self._pt_sv.set(f"{pt['last_name']}, {pt['first_name']}")
+        raw = str(a["appt_date"] or "")
+        if raw:
+            import datetime as _dt
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+                try:
+                    raw = _dt.datetime.strptime(raw, fmt).strftime("%m/%d/%Y")
+                    break
+                except ValueError:
+                    pass
+        self._date_sv.set(raw)
+        self._time_sv.set(a["appt_time"] or "")
+        self._dur_sv.set(str(a["duration"] or 50))
+        self._type_sv.set(a["session_type"] or "Individual")
+        self._status_sv.set(a["status"] or "Scheduled")
+        self._notes_txt.delete("1.0", "end")
+        self._notes_txt.insert("1.0", a["notes"] or "")
+
+    def _save(self):
+        pt_name = self._pt_sv.get()
+        if pt_name == "— Select Patient —":
+            messagebox.showerror("Required", "Please select a patient.", parent=self)
+            return
+        match = next((p for p in self._pts if f"{p['last_name']}, {p['first_name']}" == pt_name), None)
+        if not match:
+            messagebox.showerror("Error", "Patient not found.", parent=self)
+            return
+        raw_date = self._date_sv.get().strip()
+        if not raw_date:
+            messagebox.showerror("Required", "Date is required.", parent=self)
+            return
+        import datetime as _dt
+        iso_date = ""
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+            try:
+                iso_date = _dt.datetime.strptime(raw_date, fmt).strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                pass
+        if not iso_date:
+            messagebox.showerror("Invalid Date", "Enter date as MM/DD/YYYY.", parent=self)
+            return
+        try:
+            dur = int(self._dur_sv.get() or 50)
+        except ValueError:
+            dur = 50
+        data = {
+            "patient_id": match["id"],
+            "appt_date": iso_date,
+            "appt_time": self._time_sv.get().strip(),
+            "duration": dur,
+            "session_type": self._type_sv.get(),
+            "status": self._status_sv.get(),
+            "notes": self._notes_txt.get("1.0", "end-1c").strip(),
+        }
+        if self._appt_id:
+            data["id"] = self._appt_id
+        db.save_appointment(data)
+        if self._on_save:
+            self._on_save()
+        self.destroy()
+
+
+class AppointmentBookTab(ttk.Frame):
+    """Day-view appointment book with upcoming appointments list."""
+
+    _STATUS_COLORS = {
+        "Scheduled":   "#2563eb",
+        "Completed":   "#16a34a",
+        "No-Show":     "#dc2626",
+        "Cancelled":   "#6b7280",
+        "Rescheduled": "#d97706",
+    }
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._view_sv = tk.StringVar(value="Day")
+        self._sel_date = date.today()
+        self._build()
+        self.refresh()
+
+    def _build(self):
+        tb = ttk.Frame(self, padding=(8, 6))
+        tb.pack(fill="x")
+        btn(tb, "+ New Appointment", self._new_appt, "Accent.TButton").pack(side="left", padx=4)
+        btn(tb, "Edit", self._edit_appt).pack(side="left", padx=2)
+        btn(tb, "Delete", self._delete_appt, "Danger.TButton").pack(side="left", padx=2)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        btn(tb, "Mark Complete", lambda: self._set_status("Completed")).pack(side="left", padx=2)
+        btn(tb, "Mark No-Show", lambda: self._set_status("No-Show")).pack(side="left", padx=2)
+        btn(tb, "Mark Cancelled", lambda: self._set_status("Cancelled")).pack(side="left", padx=2)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Label(tb, text="View:").pack(side="left")
+        ttk.Combobox(tb, textvariable=self._view_sv,
+                     values=["Day", "Upcoming (30 days)"],
+                     state="readonly", width=16).pack(side="left", padx=3)
+        self._view_sv.trace_add("write", lambda *a: self.refresh())
+
+        nav = ttk.Frame(self, padding=(8, 2))
+        nav.pack(fill="x")
+        btn(nav, "< Prev", self._prev_day).pack(side="left")
+        btn(nav, "Today", self._go_today).pack(side="left", padx=4)
+        btn(nav, "Next >", self._next_day).pack(side="left")
+        self._date_sv = tk.StringVar(value=self._sel_date.strftime("%m/%d/%Y"))
+        ttk.Entry(nav, textvariable=self._date_sv, width=12).pack(side="left", padx=(10, 2))
+        ttk.Label(nav, text="(MM/DD/YYYY)", foreground=MUTED).pack(side="left")
+        btn(nav, "Go", self._go_date).pack(side="left", padx=6)
+        self._day_lbl = ttk.Label(nav, text="", foreground=ACCENT, font=FONT_LG)
+        self._day_lbl.pack(side="left", padx=12)
+        self._count_lbl = ttk.Label(nav, text="", foreground=MUTED)
+        self._count_lbl.pack(side="right", padx=8)
+
+        frm = ttk.Frame(self)
+        frm.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        cols = ("id", "date", "time", "patient", "type", "duration", "status", "phone", "notes")
+        self.tv = ttk.Treeview(frm, columns=cols, show="headings", selectmode="browse")
+        hdrs = [("ID", 40), ("Date", 90), ("Time", 80), ("Patient", 180),
+                ("Type", 110), ("Min", 45), ("Status", 100), ("Phone", 110), ("Notes", 220)]
+        for (h, w), c in zip(hdrs, cols):
+            self.tv.heading(c, text=h, anchor="w")
+            self.tv.column(c, width=w, stretch=(c == "notes"))
+        vsb = ttk.Scrollbar(frm, orient="vertical", command=self.tv.yview)
+        self.tv.configure(yscrollcommand=vsb.set)
+        self.tv.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+        self.tv.tag_configure("even", background=ROW_EVEN)
+        for status, color in self._STATUS_COLORS.items():
+            tag = "st_" + status.lower().replace("-", "_")
+            self.tv.tag_configure(tag, foreground=color)
+        self.tv.bind("<Double-1>", lambda e: self._edit_appt())
+
+    def _prev_day(self):
+        from datetime import timedelta
+        self._sel_date -= timedelta(days=1)
+        self._date_sv.set(self._sel_date.strftime("%m/%d/%Y"))
+        self._view_sv.set("Day")
+        self.refresh()
+
+    def _next_day(self):
+        from datetime import timedelta
+        self._sel_date += timedelta(days=1)
+        self._date_sv.set(self._sel_date.strftime("%m/%d/%Y"))
+        self._view_sv.set("Day")
+        self.refresh()
+
+    def _go_today(self):
+        self._sel_date = date.today()
+        self._date_sv.set(self._sel_date.strftime("%m/%d/%Y"))
+        self._view_sv.set("Day")
+        self.refresh()
+
+    def _go_date(self):
+        raw = self._date_sv.get().strip()
+        import datetime as _dt
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+            try:
+                self._sel_date = _dt.datetime.strptime(raw, fmt).date()
+                self._date_sv.set(self._sel_date.strftime("%m/%d/%Y"))
+                self._view_sv.set("Day")
+                self.refresh()
+                return
+            except ValueError:
+                pass
+        messagebox.showerror("Invalid Date", "Enter date as MM/DD/YYYY.", parent=self)
+
+    def refresh(self):
+        self.tv.delete(*self.tv.get_children())
+        view = self._view_sv.get()
+        if view == "Day":
+            iso = self._sel_date.isoformat()
+            rows = db.get_appointments_for_date(iso)
+            self._day_lbl.config(text=self._sel_date.strftime("%A, %B %d, %Y"))
+        else:
+            rows = db.get_upcoming_appointments(30)
+            self._day_lbl.config(text="Next 30 Days")
+        for i, r in enumerate(rows):
+            patient = f"{r['last_name']}, {r['first_name']}"
+            phone = r["phone_cell"] or r["phone_home"] or ""
+            display_date = fmt_date(r["appt_date"])
+            time_str = _fmt_appt_time(r["appt_time"])
+            status = r["status"] or "Scheduled"
+            tag_st = "st_" + status.lower().replace("-", "_")
+            tags = ("even", tag_st) if i % 2 == 0 else (tag_st,)
+            self.tv.insert("", "end", iid=str(r["id"]), tags=tags,
+                           values=(r["id"], display_date, time_str, patient,
+                                   r["session_type"], r["duration"],
+                                   status, phone, r["notes"] or ""))
+        count = len(rows)
+        self._count_lbl.config(text=f"{count} appointment{'s' if count != 1 else ''}")
+
+    def _selected_id(self):
+        sel = self.tv.selection()
+        return int(sel[0]) if sel else None
+
+    def _new_appt(self):
+        AppointmentDialog(self, prefill_date=self._sel_date.strftime("%m/%d/%Y"),
+                          on_save=self.refresh)
+
+    def _edit_appt(self):
+        aid = self._selected_id()
+        if not aid:
+            messagebox.showinfo("Select Appointment", "Select an appointment to edit.", parent=self)
+            return
+        AppointmentDialog(self, appt_id=aid, on_save=self.refresh)
+
+    def _delete_appt(self):
+        aid = self._selected_id()
+        if not aid:
+            messagebox.showinfo("Select Appointment", "Select an appointment to delete.", parent=self)
+            return
+        row = self.tv.item(str(aid))["values"]
+        patient = row[3] if len(row) > 3 else "this appointment"
+        if messagebox.askyesno("Delete Appointment",
+                               f"Delete appointment for {patient}?", parent=self):
+            db.delete_appointment(aid)
+            self.refresh()
+
+    def _set_status(self, new_status):
+        aid = self._selected_id()
+        if not aid:
+            messagebox.showinfo("Select Appointment", "Select an appointment first.", parent=self)
+            return
+        a = db.get_appointment(aid)
+        if not a:
+            return
+        data = {k: a[k] for k in a.keys()}
+        data["id"] = aid
+        data["status"] = new_status
+        db.save_appointment(data)
+        self.refresh()
+
 class BookkeepingTab(ttk.Frame):
     """Dome-style simplified bookkeeping ledger."""
 
@@ -5241,6 +5570,7 @@ class TheraTrakApp(tk.Tk):
 
         self.tab_patients = PatientsTab(self.nb)
         self.tab_sessions = SessionNotesTab(self.nb)
+        self.tab_appointments = AppointmentBookTab(self.nb)
         self.tab_billing = BillingTab(self.nb)
         self.tab_cms = CMS1500Tab(self.nb)
         self.tab_bookkeeping = BookkeepingTab(self.nb)
@@ -5249,6 +5579,7 @@ class TheraTrakApp(tk.Tk):
 
         self.nb.add(self.tab_patients, text="  Patients  ")
         self.nb.add(self.tab_sessions, text="  Session Notes  ")
+        self.nb.add(self.tab_appointments, text="  Appointment Book  ")
         self.nb.add(self.tab_billing, text="  Billing  ")
         self.nb.add(self.tab_cms, text="  CMS-1500  ")
         self.nb.add(self.tab_bookkeeping, text="  Bookkeeping  ")

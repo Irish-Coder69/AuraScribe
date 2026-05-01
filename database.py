@@ -1,5 +1,5 @@
 """
-TheraTrak Pro – Database layer (SQLite)
+TheraTrak Pro ΓÇô Database layer (SQLite)
 """
 import sqlite3
 import hashlib
@@ -13,7 +13,7 @@ from app_paths import DB_FILE
 DB_PATH = DB_FILE
 
 
-# ─── Connection ────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Connection ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
@@ -23,7 +23,7 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
-# ─── Schema ────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Schema ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def initialize_db():
     conn = get_connection()
@@ -220,6 +220,8 @@ def initialize_db():
     _migrate_users_table()
     _migrate_provider_settings_table()
     _migrate_bookkeeping_tables()
+    _migrate_bookkeeping_tables()
+    _migrate_appointments_table()
     _seed_dsm_codes()
 
 
@@ -342,7 +344,7 @@ def _seed_dsm_codes():
     conn.close()
 
 
-# ─── Patients ──────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Patients ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def get_all_patients(status="Active"):
     conn = get_connection()
@@ -418,7 +420,7 @@ def count_patients(status="Active"):
     return n
 
 
-# ─── Session Notes ─────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Session Notes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def get_sessions_for_patient(pid):
     conn = get_connection()
@@ -507,7 +509,7 @@ def delete_session(sid):
     conn.close()
 
 
-# ─── Billing ───────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Billing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def get_billing_for_patient(pid):
     conn = get_connection()
@@ -606,7 +608,7 @@ def get_billing_summary():
     return (round(row["tc"] or 0, 2), round(row["tp"] or 0, 2), round(row["tb"] or 0, 2))
 
 
-# ─── Provider Settings ─────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Provider Settings ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def get_provider():
     conn = get_connection()
@@ -629,7 +631,7 @@ def save_provider(data: dict):
     conn.close()
 
 
-# ─── DSM Codes ─────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ DSM Codes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def search_dsm(term):
     conn = get_connection()
@@ -659,7 +661,7 @@ def toggle_dsm_favorite(code):
     conn.close()
 
 
-# ─── Users / Authentication ───────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Users / Authentication ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 def _hash_password(password: str, salt_hex: str) -> str:
     salt = bytes.fromhex(salt_hex)
@@ -678,7 +680,7 @@ def count_users() -> int:
     return n
 
 
-# ─── Bookkeeping ───────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Bookkeeping ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 _BOOKKEEPING_TABLES = """
 CREATE TABLE IF NOT EXISTS bookkeeping_entries (
@@ -711,6 +713,28 @@ CREATE TABLE IF NOT EXISTS bookkeeping_settings (
 
 
 def _migrate_bookkeeping_tables():
+    _APPOINTMENTS_TABLE = """
+    CREATE TABLE IF NOT EXISTS appointments (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id       INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+        appt_date        TEXT NOT NULL,
+        appt_time        TEXT DEFAULT '',
+        duration         INTEGER DEFAULT 50,
+        session_type     TEXT DEFAULT 'Individual',
+        status           TEXT DEFAULT 'Scheduled',
+        notes            TEXT DEFAULT '',
+        created_at       TEXT DEFAULT (datetime('now'))
+    );
+    """
+
+
+    def _migrate_appointments_table():
+        conn = get_connection()
+        conn.executescript(_APPOINTMENTS_TABLE)
+        conn.commit()
+        conn.close()
+
+
     conn = get_connection()
     cur = conn.cursor()
     cur.executescript(_BOOKKEEPING_TABLES)
@@ -929,6 +953,81 @@ def get_all_users():
 
 
 def update_user(uid: int, data: dict):
+
+
+    # ΓöÇΓöÇΓöÇ Appointments ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+
+    def get_appointments_for_date(appt_date: str):
+        """Return all appointments for a given date (YYYY-MM-DD), ordered by time."""
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT a.*, p.last_name, p.first_name, p.phone_cell, p.phone_home
+               FROM appointments a
+               JOIN patients p ON p.id = a.patient_id
+               WHERE a.appt_date=?
+               ORDER BY a.appt_time, a.id""",
+            (appt_date,)
+        ).fetchall()
+        conn.close()
+        return rows
+
+
+    def get_appointments_range(date_from: str, date_to: str):
+        """Return appointments between two dates (inclusive), ordered by date then time."""
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT a.*, p.last_name, p.first_name, p.phone_cell, p.phone_home
+               FROM appointments a
+               JOIN patients p ON p.id = a.patient_id
+               WHERE a.appt_date BETWEEN ? AND ?
+               ORDER BY a.appt_date, a.appt_time, a.id""",
+            (date_from, date_to)
+        ).fetchall()
+        conn.close()
+        return rows
+
+
+    def get_upcoming_appointments(days: int = 30):
+        """Return appointments from today forward for the next N days."""
+        from datetime import date, timedelta
+        today = date.today().isoformat()
+        end = (date.today() + timedelta(days=days)).isoformat()
+        return get_appointments_range(today, end)
+
+
+    def save_appointment(data: dict):
+        """Insert or update an appointment. Returns the appointment id."""
+        conn = get_connection()
+        cur = conn.cursor()
+        aid = data.pop("id", None)
+        cols = list(data.keys())
+        vals = list(data.values())
+        if aid is None:
+            placeholders = ",".join(["?"] * len(cols))
+            col_str = ",".join(cols)
+            cur.execute(f"INSERT INTO appointments ({col_str}) VALUES ({placeholders})", vals)
+            aid = cur.lastrowid
+        else:
+            set_str = ",".join([f"{c}=?" for c in cols])
+            vals.append(aid)
+            cur.execute(f"UPDATE appointments SET {set_str} WHERE id=?", vals)
+        conn.commit()
+        conn.close()
+        return aid
+
+
+    def delete_appointment(aid: int):
+        conn = get_connection()
+        conn.execute("DELETE FROM appointments WHERE id=?", (aid,))
+        conn.commit()
+        conn.close()
+
+
+    def get_appointment(aid: int):
+        conn = get_connection()
+        row = conn.execute("SELECT * FROM appointments WHERE id=?", (aid,)).fetchone()
+        conn.close()
+        return row
     """Update an existing user's profile fields. If 'password' is non-empty, reset the password hash."""
     profile_fields = [
         "first_name", "middle_name", "last_name",
