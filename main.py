@@ -1949,19 +1949,22 @@ class SessionNotesTab(ttk.Frame):
         btn(tb, "Save Notes Report PDF", self._save_notes_report_pdf).pack(side="left", padx=2)
         btn(tb, "Print Selected Notes", self._print_selected_notes).pack(side="left", padx=2)
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Label(tb, text="From:").pack(side="left")
-        self._date_from_sv = tk.StringVar()
-        ttk.Entry(tb, textvariable=self._date_from_sv, width=11).pack(side="left", padx=2)
-        ttk.Label(tb, text="To:").pack(side="left", padx=(4, 0))
-        self._date_to_sv = tk.StringVar()
-        ttk.Entry(tb, textvariable=self._date_to_sv, width=11).pack(side="left", padx=2)
-        ttk.Label(tb, text="(YYYY-MM-DD)").pack(side="left", padx=(2, 0))
-        btn(tb, "Apply Filter", self.refresh).pack(side="left", padx=2)
-        btn(tb, "Clear Dates", self._clear_date_filter).pack(side="left", padx=2)
-
         self._pt_label = ttk.Label(tb, text="", foreground=ACCENT, font=("Calibri", 10, "bold"))
         self._pt_label.pack(side="right", padx=8)
+
+        # Date range filter row
+        dr_row = ttk.Frame(self, padding=(8, 2))
+        dr_row.pack(fill="x")
+        ttk.Label(dr_row, text="Date Range:").pack(side="left")
+        ttk.Label(dr_row, text="From:").pack(side="left", padx=(8, 2))
+        self._date_from_sv = tk.StringVar()
+        ttk.Entry(dr_row, textvariable=self._date_from_sv, width=12).pack(side="left", padx=2)
+        ttk.Label(dr_row, text="To:").pack(side="left", padx=(8, 2))
+        self._date_to_sv = tk.StringVar()
+        ttk.Entry(dr_row, textvariable=self._date_to_sv, width=12).pack(side="left", padx=2)
+        ttk.Label(dr_row, text="(YYYY-MM-DD)", foreground=MUTED).pack(side="left", padx=(4, 0))
+        btn(dr_row, "Apply Filter", self.refresh).pack(side="left", padx=6)
+        btn(dr_row, "Clear Dates", self._clear_date_filter).pack(side="left", padx=2)
 
         frm = ttk.Frame(self)
         frm.pack(fill="both", expand=True, padx=8, pady=(0, 4))
