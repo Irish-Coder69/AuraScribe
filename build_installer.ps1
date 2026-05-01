@@ -117,6 +117,8 @@ $pyInstallerArgs = @(
     '--hidden-import', 'cms_pdf',
     '--hidden-import', 'migration',
     '--hidden-import', 'dsm_codes',
+    '--hidden-import', 'cryptography',
+    '--collect-all', 'cryptography',
     '--version-file', $appVerFile,
     $mainPy
 )
