@@ -10,6 +10,8 @@ import io
 import os
 import queue
 import re
+import hmac
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -18,6 +20,8 @@ import traceback
 import tkinter as tk
 import tkinter.font as tkFont
 import urllib.request
+import base64
+import uuid
 import webbrowser
 from datetime import date, datetime
 from pathlib import Path
@@ -94,6 +98,14 @@ CMS_BACK_TEMPLATE_CANDIDATES = (
     APP_ROOT / "CMS1500_template_back.pdf",
     APP_ROOT / "CMS 1500_templete_back.pdf",
 )
+
+LICENSE_KEY_PREFIX = "THP1"
+LICENSE_PREF_KEY = "license_key"
+LICENSE_NAME_PREF_KEY = "license_registered_name"
+LICENSE_EMAIL_PREF_KEY = "license_registered_email"
+LICENSE_ACTIVATED_AT_PREF_KEY = "license_activated_at"
+LICENSE_TRIAL_START_PREF_KEY = "license_trial_start"
+LICENSE_TRIAL_DAYS = 14
 
 # Build lookup mapping for place of service codes
 _PLACE_CODE_MAP = {p[0]: p[1] for p in PLACE_CODES}
@@ -251,6 +263,84 @@ def _load_cms_overlay_box_offsets(raw_value: object) -> dict[str, dict[str, floa
         parsed[key] = clamped
 
     return parsed
+
+
+def _b64u_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64u_decode(raw: str) -> bytes:
+    padded = raw + ("=" * ((4 - len(raw) % 4) % 4))
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _license_signing_secret() -> str:
+    # Override in production via environment variable at build/runtime.
+    return os.environ.get("THERATRAK_LICENSE_SECRET", "THERATRAK-PRO-LICENSE-CHANGE-THIS")
+
+
+def _current_machine_code() -> str:
+    source = "|".join([
+        os.environ.get("COMPUTERNAME", "").strip().upper(),
+        hex(uuid.getnode()),
+        os.environ.get("PROCESSOR_IDENTIFIER", "").strip().upper(),
+    ])
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:16].upper()
+
+
+def _validate_license_key(license_key: str, machine_code: str) -> tuple[bool, str, dict[str, str]]:
+    normalized = re.sub(r"\s+", "", str(license_key or "").strip())
+    if not normalized:
+        return False, "No license key entered.", {}
+
+    parts = normalized.split(".")
+    if len(parts) != 3 or parts[0] != LICENSE_KEY_PREFIX:
+        return False, "License key format is invalid.", {}
+
+    payload_raw = b""
+    signature_raw = b""
+    try:
+        payload_raw = _b64u_decode(parts[1])
+        signature_raw = _b64u_decode(parts[2])
+    except Exception:
+        return False, "License key payload could not be decoded.", {}
+
+    expected_sig = hmac.new(
+        _license_signing_secret().encode("utf-8"),
+        payload_raw,
+        hashlib.sha256,
+    ).digest()[:16]
+    if not hmac.compare_digest(signature_raw, expected_sig):
+        return False, "License key signature is invalid.", {}
+
+    try:
+        payload = json.loads(payload_raw.decode("utf-8"))
+    except Exception:
+        return False, "License key data is unreadable.", {}
+
+    if not isinstance(payload, dict):
+        return False, "License key payload is invalid.", {}
+
+    bound_machine = str(payload.get("mc") or "").strip().upper()
+    if bound_machine and bound_machine != machine_code.strip().upper():
+        return False, "This license key is for a different computer.", {}
+
+    exp_text = str(payload.get("exp") or "").strip()
+    if exp_text:
+        try:
+            exp_date = datetime.strptime(exp_text, "%Y-%m-%d").date()
+        except ValueError:
+            return False, "License expiration date is invalid.", {}
+        if date.today() > exp_date:
+            return False, "This license key has expired.", {}
+
+    result = {
+        "name": str(payload.get("n") or "").strip(),
+        "email": str(payload.get("e") or "").strip(),
+        "machine": bound_machine,
+        "expires": exp_text,
+    }
+    return True, "License key is valid.", result
 
 
 def _overlay_box_offsets_inches_to_points(offsets: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
@@ -6319,6 +6409,7 @@ class TheraTrakApp(tk.Tk):
 
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label="Check for Updates", command=self._check_for_updates)
+        help_menu.add_command(label="License Registration", command=self._open_license_registration)
         help_menu.add_command(label="User Guide", command=self._open_user_guide)
         help_menu.add_command(label="About TheraTrak Pro", command=self._about)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -6438,11 +6529,18 @@ class TheraTrakApp(tk.Tk):
         user_line = ""
         if self.current_user:
             user_line = f"Logged In User: {self.current_user['username']} ({self.current_user['role']})\n"
+        licensed_name = db.get_app_preference(LICENSE_NAME_PREF_KEY, "")
+        licensed_email = db.get_app_preference(LICENSE_EMAIL_PREF_KEY, "")
+        license_line = "License: Trial Mode"
+        if licensed_name or licensed_email:
+            who = licensed_name or licensed_email
+            license_line = f"License: Registered to {who}"
         messagebox.showinfo(
             "About TheraTrak Pro",
             "TheraTrak Pro\n"
             f"Version: {self._version}\n"
             f"{user_line}"
+            f"{license_line}\n"
             "Combined Therapy Practice Management + CMS-1500\n\n"
             "Features:\n"
             "  - Patient management & demographics\n"
@@ -6455,6 +6553,136 @@ class TheraTrakApp(tk.Tk):
             "Created By: Judson M. Fitzpatrick, Irish_Codeers Programming\n"
             f"(c) {datetime.now().year} Irish_Codeers Programming. All rights reserved."
         )
+
+    def _get_trial_days_left(self) -> int:
+        start_text = db.get_app_preference(LICENSE_TRIAL_START_PREF_KEY, "")
+        if not start_text:
+            start = date.today()
+            db.set_app_preference(LICENSE_TRIAL_START_PREF_KEY, start.isoformat())
+            return LICENSE_TRIAL_DAYS
+        try:
+            start = datetime.strptime(start_text, "%Y-%m-%d").date()
+        except ValueError:
+            start = date.today()
+            db.set_app_preference(LICENSE_TRIAL_START_PREF_KEY, start.isoformat())
+            return LICENSE_TRIAL_DAYS
+
+        elapsed = max(0, (date.today() - start).days)
+        return max(0, LICENSE_TRIAL_DAYS - elapsed)
+
+    def _open_license_registration(self, required: bool = False) -> bool:
+        machine_code = _current_machine_code()
+        current_key = db.get_app_preference(LICENSE_PREF_KEY, "")
+        status_ok, status_msg, status_data = _validate_license_key(current_key, machine_code)
+
+        dlg = tk.Toplevel(self)
+        apply_window_icon(dlg)
+        dlg.title("License Registration")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+
+        ttk.Label(frm, text="TheraTrak Pro License", font=FONT_LG).grid(row=0, column=0, columnspan=3, sticky="w")
+
+        status_text = "Active" if status_ok else "Not Activated"
+        if not status_ok and status_msg:
+            status_text = f"Not Activated ({status_msg})"
+        ttk.Label(frm, text=f"Status: {status_text}").grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 2))
+
+        if status_ok:
+            who = status_data.get("name") or status_data.get("email") or "Licensed User"
+            ttk.Label(frm, text=f"Registered To: {who}").grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 2))
+            if status_data.get("expires"):
+                ttk.Label(frm, text=f"Expires: {status_data.get('expires')}").grid(row=3, column=0, columnspan=3, sticky="w", pady=(0, 2))
+        else:
+            days_left = self._get_trial_days_left()
+            ttk.Label(frm, text=f"Trial Remaining: {days_left} day(s)").grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 2))
+
+        ttk.Label(frm, text="Machine Code:").grid(row=4, column=0, sticky="w", pady=(8, 2))
+        machine_var = tk.StringVar(value=machine_code)
+        machine_entry = ttk.Entry(frm, textvariable=machine_var, width=28, state="readonly")
+        machine_entry.grid(row=5, column=0, sticky="w")
+
+        def copy_machine_code():
+            self.clipboard_clear()
+            self.clipboard_append(machine_code)
+            self.update()
+
+        ttk.Button(frm, text="Copy", command=copy_machine_code).grid(row=5, column=1, sticky="w", padx=6)
+
+        ttk.Label(frm, text="Enter License Key:").grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 2))
+        key_var = tk.StringVar(value=current_key)
+        key_entry = ttk.Entry(frm, textvariable=key_var, width=64)
+        key_entry.grid(row=7, column=0, columnspan=3, sticky="ew")
+        key_entry.focus_set()
+
+        result = {"activated": status_ok}
+
+        def activate_license():
+            candidate = key_var.get().strip()
+            ok, msg, data = _validate_license_key(candidate, machine_code)
+            if not ok:
+                messagebox.showerror("License", msg, parent=dlg)
+                return
+
+            db.set_app_preference(LICENSE_PREF_KEY, candidate)
+            db.set_app_preference(LICENSE_NAME_PREF_KEY, data.get("name", ""))
+            db.set_app_preference(LICENSE_EMAIL_PREF_KEY, data.get("email", ""))
+            db.set_app_preference(LICENSE_ACTIVATED_AT_PREF_KEY, datetime.now().isoformat(timespec="seconds"))
+            result["activated"] = True
+            messagebox.showinfo("License", "License activated successfully.", parent=dlg)
+            dlg.destroy()
+
+        def clear_license():
+            if not messagebox.askyesno("License", "Remove this license key from this computer?", parent=dlg):
+                return
+            db.set_app_preference(LICENSE_PREF_KEY, "")
+            db.set_app_preference(LICENSE_NAME_PREF_KEY, "")
+            db.set_app_preference(LICENSE_EMAIL_PREF_KEY, "")
+            db.set_app_preference(LICENSE_ACTIVATED_AT_PREF_KEY, "")
+            key_var.set("")
+            result["activated"] = False
+            messagebox.showinfo("License", "License key removed.", parent=dlg)
+
+        btn_row = ttk.Frame(frm)
+        btn_row.grid(row=8, column=0, columnspan=3, sticky="e", pady=(10, 0))
+        ttk.Button(btn_row, text="Activate", command=activate_license).pack(side="left", padx=4)
+        ttk.Button(btn_row, text="Remove Key", command=clear_license).pack(side="left", padx=4)
+        ttk.Button(btn_row, text="Close", command=dlg.destroy).pack(side="left", padx=4)
+
+        dlg.wait_window()
+
+        if required and not result["activated"]:
+            messagebox.showwarning(
+                "License Required",
+                "A valid license key is required to continue using TheraTrak Pro.",
+                parent=self,
+            )
+        return bool(result["activated"])
+
+    def ensure_license_access(self) -> bool:
+        machine_code = _current_machine_code()
+        key = db.get_app_preference(LICENSE_PREF_KEY, "")
+        valid, _msg, _data = _validate_license_key(key, machine_code)
+        if valid:
+            return True
+
+        days_left = self._get_trial_days_left()
+        if days_left > 0:
+            if messagebox.askyesno(
+                "Trial Mode",
+                "TheraTrak Pro is running in trial mode.\n\n"
+                f"Days remaining: {days_left}\n\n"
+                "Activate your license key now?",
+                parent=self,
+            ):
+                self._open_license_registration(required=False)
+            return True
+
+        return self._open_license_registration(required=True)
 
     def _parse_version_tuple(self, text):
         nums = [int(n) for n in re.findall(r"\d+", text or "")]
@@ -6770,6 +6998,9 @@ if __name__ == "__main__":
 
         if login.user:
             app.set_logged_in_user(login.user)
+            if not app.ensure_license_access():
+                app.destroy()
+                raise SystemExit(0)
             if login.winfo_exists():
                 login.destroy()
             app.deiconify()
