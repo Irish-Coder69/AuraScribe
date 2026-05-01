@@ -2034,6 +2034,19 @@ class SessionNotesTab(ttk.Frame):
             self._date_to_sv.set("")
             self.refresh()
 
+    @staticmethod
+    def _to_iso_date(d):
+        """Normalize a DB session_date value to YYYY-MM-DD for comparison."""
+        import datetime as _dt
+        if not d:
+            return ""
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y"):
+            try:
+                return _dt.datetime.strptime(str(d), fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        return str(d)
+
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         if not self._pid_filter:
@@ -2043,9 +2056,9 @@ class SessionNotesTab(ttk.Frame):
         date_to = self._date_to_sv.get().strip()
         rows = db.get_sessions_for_patient(self._pid_filter)
         if date_from:
-            rows = [r for r in rows if (r["session_date"] or "") >= date_from]
+            rows = [r for r in rows if self._to_iso_date(r["session_date"]) >= date_from]
         if date_to:
-            rows = [r for r in rows if (r["session_date"] or "") <= date_to]
+            rows = [r for r in rows if self._to_iso_date(r["session_date"]) <= date_to]
         for i, r in enumerate(rows):
             self._insert_row(r, dict(r), r["id"], even=i % 2 == 0)
 
