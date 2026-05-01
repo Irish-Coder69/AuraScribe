@@ -1537,82 +1537,126 @@ class SessionDialog(tk.Toplevel):
         found = []
         if os.name != "nt":
             return found
+
         import winreg
 
-        # Known dictation executables to search for
-        candidates = [
-            ("Dragon NaturallySpeaking", ["natspeak.exe", "dragon.exe", "dragonbar.exe"]),
-            ("Dragon Home / Professional", ["natspeak.exe", "dragon.exe"]),
-            ("Windows Speech Recognition", ["speechux.exe"]),
-            ("Whisper Dictate", ["whisper-dictate.exe", "whisperdictate.exe"]),
-            ("SpeechNotes", ["speechnotes.exe"]),
-            ("Otter.ai Desktop", ["otter.exe"]),
+        located = set()
+
+        def _add(label, p):
+            p = str(p)
+            if p and p not in located and Path(p).exists():
+                located.add(p)
+                found.append((label, p))
+
+        # Fast targeted checks for common install locations.
+        pf = Path(os.environ.get("ProgramFiles", ""))
+        pfx86 = Path(os.environ.get("ProgramFiles(x86)", ""))
+        local = Path(os.environ.get("LOCALAPPDATA", ""))
+
+        known_paths = [
+            ("Dragon NaturallySpeaking", pf / "Nuance" / "NaturallySpeaking15" / "Program" / "natspeak.exe"),
+            ("Dragon NaturallySpeaking", pfx86 / "Nuance" / "NaturallySpeaking15" / "Program" / "natspeak.exe"),
+            ("Windows Speech Recognition", Path(os.environ.get("WINDIR", "C:\\Windows")) / "System32" / "Speech" / "SpeechUX" / "sapi.cpl"),
+            ("Whisper Dictate", local / "Programs" / "whisper-dictate" / "whisper-dictate.exe"),
+            ("SpeechNotes", local / "Programs" / "SpeechNotes" / "speechnotes.exe"),
+            ("Otter.ai Desktop", local / "Programs" / "Otter" / "otter.exe"),
+        ]
+        for label, p in known_paths:
+            _add(label, p)
+
+        # App Paths registry (direct executable registration)
+        app_paths = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"
+        app_names = {
+            "natspeak.exe": "Dragon NaturallySpeaking",
+            "dragon.exe": "Dragon NaturallySpeaking",
+            "whisper-dictate.exe": "Whisper Dictate",
+            "whisperdictate.exe": "Whisper Dictate",
+            "speechnotes.exe": "SpeechNotes",
+            "otter.exe": "Otter.ai Desktop",
+            "speechux.exe": "Windows Speech Recognition",
+        }
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(hive, app_paths) as base:
+                    i = 0
+                    while True:
+                        try:
+                            sub_name = winreg.EnumKey(base, i)
+                            i += 1
+                        except OSError:
+                            break
+                        label = app_names.get(sub_name.lower())
+                        if not label:
+                            continue
+                        try:
+                            with winreg.OpenKey(base, sub_name) as sk:
+                                val, _ = winreg.QueryValueEx(sk, "")
+                                _add(label, str(val).strip('"'))
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+
+        # Uninstall registry (display name + install location)
+        uninstall_roots = [
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ]
+        keywords = {
+            "dragon": "Dragon NaturallySpeaking",
+            "naturallyspeaking": "Dragon NaturallySpeaking",
+            "dictate": "Whisper Dictate",
+            "whisper": "Whisper Dictate",
+            "speechnotes": "SpeechNotes",
+            "otter": "Otter.ai Desktop",
+            "speech recognition": "Windows Speech Recognition",
+        }
+        exe_candidates = [
+            "natspeak.exe",
+            "dragon.exe",
+            "whisper-dictate.exe",
+            "whisperdictate.exe",
+            "speechnotes.exe",
+            "otter.exe",
+            "speechux.exe",
         ]
 
-        # Locations to scan
-        search_roots = []
-        for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA", "APPDATA"):
-            p = os.environ.get(env)
-            if p:
-                search_roots.append(Path(p))
-
-        located = set()
-        for label, exes in candidates:
-            for root in search_roots:
-                for exe in exes:
-                    # Walk one level of subfolders only (fast)
-                    try:
-                        for sub in [root] + list(root.iterdir()):
-                            if not sub.is_dir():
-                                continue
-                            candidate_path = sub / exe
-                            if candidate_path.exists() and str(candidate_path) not in located:
-                                located.add(str(candidate_path))
-                                found.append((label, str(candidate_path)))
-                            # One more level deep
-                            try:
-                                for sub2 in sub.iterdir():
-                                    if not sub2.is_dir():
-                                        continue
-                                    p2 = sub2 / exe
-                                    if p2.exists() and str(p2) not in located:
-                                        located.add(str(p2))
-                                        found.append((label, str(p2)))
-                            except PermissionError:
-                                pass
-                    except (PermissionError, NotADirectoryError):
-                        pass
-
-        # Also check App Paths registry
-        try:
-            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"
-            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for root in uninstall_roots:
                 try:
-                    with winreg.OpenKey(hive, key_path) as base:
+                    with winreg.OpenKey(hive, root) as base:
                         i = 0
                         while True:
                             try:
                                 sub_name = winreg.EnumKey(base, i)
                                 i += 1
-                                name_lower = sub_name.lower()
-                                for label, exes in candidates:
-                                    if any(e.lower() in name_lower for e in exes):
-                                        try:
-                                            with winreg.OpenKey(base, sub_name) as sk:
-                                                val, _ = winreg.QueryValueEx(sk, "")
-                                                val = str(val).strip('"')
-                                                if Path(val).exists() and val not in located:
-                                                    located.add(val)
-                                                    found.append((label, val))
-                                        except OSError:
-                                            pass
                             except OSError:
                                 break
+
+                            try:
+                                with winreg.OpenKey(base, sub_name) as sk:
+                                    display_name = str(winreg.QueryValueEx(sk, "DisplayName")[0]).lower()
+                                    install_location = str(winreg.QueryValueEx(sk, "InstallLocation")[0]) if True else ""
+                            except OSError:
+                                continue
+
+                            label = None
+                            for kw, mapped in keywords.items():
+                                if kw in display_name:
+                                    label = mapped
+                                    break
+                            if not label:
+                                continue
+
+                            if install_location:
+                                base_path = Path(install_location)
+                                for exe in exe_candidates:
+                                    _add(label, base_path / exe)
                 except OSError:
                     pass
-        except Exception:
-            pass
 
+        # Always show built-in path as guidance even if no app exe is found.
+        found.insert(0, ("Windows Built-in Dictation (Win+H)", ""))
         return found
 
     def _launch_dictation_app(self, exe_path):
@@ -1693,8 +1737,10 @@ class SessionDialog(tk.Toplevel):
 
         detected = self._find_dictation_apps()
         if detected:
-            app_var = tk.StringVar(value=detected[0][1])
-            app_labels = {f"{label}  —  {Path(exe).name}": exe for label, exe in detected}
+            app_labels = {}
+            for label, exe in detected:
+                display = f"{label}  —  {Path(exe).name}" if exe else label
+                app_labels[display] = exe
             app_combo = ttk.Combobox(
                 app_frame,
                 values=list(app_labels.keys()),
@@ -1710,6 +1756,8 @@ class SessionDialog(tk.Toplevel):
                 if exe:
                     self._launch_dictation_app(exe)
                     win.destroy()
+                else:
+                    self._show_system_dictation_help()
 
             btn(app_frame, "Launch", _launch_selected).pack(side="left")
         else:
