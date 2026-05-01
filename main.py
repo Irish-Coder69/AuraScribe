@@ -1424,6 +1424,7 @@ class SessionDialog(tk.Toplevel):
         self._btn_stop_dict = btn(bot, "Stop Dictation", self._stop_dictation)
         self._btn_stop_dict.pack(side="left", padx=2)
         self._btn_stop_dict.configure(state="disabled")
+        btn(bot, "Paste Dictation", self._paste_dictation_from_clipboard).pack(side="left", padx=2)
         btn(bot, "Check Dictation Setup", self._check_dictation_setup).pack(side="left", padx=4)
         btn(bot, "Dictation Settings", self._open_dictation_settings).pack(side="left", padx=2)
         ttk.Label(bot, textvariable=self._dict_sv, foreground=MUTED).pack(side="left", padx=8)
@@ -1497,12 +1498,54 @@ class SessionDialog(tk.Toplevel):
         text = (text or "").strip()
         if not text:
             return
+        self._insert_text_into_selected_target(text)
+
+    def _insert_text_into_selected_target(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
         target_name = self._dict_target_var.get().strip()
         target_widget = self._dictation_targets.get(target_name, self._nt)
         current = target_widget.get("1.0", "end-1c").strip()
         prefix = "\n" if current else ""
         target_widget.insert("end", f"{prefix}{text}")
         target_widget.see("end")
+
+    def _paste_dictation_from_clipboard(self):
+        try:
+            text = self.clipboard_get()
+        except Exception:
+            text = ""
+        text = (text or "").strip()
+        if not text:
+            messagebox.showinfo(
+                "Clipboard Empty",
+                "No text found in clipboard. Use your preferred dictation software first, then click 'Paste Dictation'.",
+                parent=self,
+            )
+            return
+        self._insert_text_into_selected_target(text)
+        self._dict_sv.set("Dictation: pasted from clipboard")
+
+    def _show_system_dictation_help(self):
+        lines = [
+            "Use Any Dictation Software",
+            "",
+            "TheraTrak supports two dictation paths:",
+            "- Built-in offline dictation (Start/Stop Dictation) when local Vosk is configured.",
+            "- Any external/platform dictation app via clipboard + 'Paste Dictation'.",
+            "",
+            "Common platform shortcuts:",
+            "- Windows: Win + H",
+            "- macOS: Press Fn twice (if enabled in Keyboard settings)",
+            "",
+            "Workflow:",
+            "1) Select 'Dictate To' destination.",
+            "2) Run your preferred dictation software.",
+            "3) Copy transcript to clipboard.",
+            "4) Click 'Paste Dictation' in Session Note.",
+        ]
+        messagebox.showinfo("Dictation Help", "\n".join(lines), parent=self)
 
     def _open_models_folder(self):
         try:
@@ -1558,6 +1601,7 @@ class SessionDialog(tk.Toplevel):
         btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=(8, 0))
         btn(btns, "Open Models Folder", self._open_models_folder).pack(side="left")
+        btn(btns, "Dictation Help", self._show_system_dictation_help).pack(side="left", padx=6)
         btn(btns, "Run Setup Check", self._check_dictation_setup).pack(side="left", padx=6)
         btn(btns, "Close", win.destroy).pack(side="right")
 
