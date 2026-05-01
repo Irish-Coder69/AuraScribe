@@ -220,7 +220,6 @@ def initialize_db():
     _migrate_users_table()
     _migrate_provider_settings_table()
     _migrate_bookkeeping_tables()
-    _migrate_bookkeeping_tables()
     _migrate_appointments_table()
     _seed_dsm_codes()
 
@@ -711,30 +710,29 @@ CREATE TABLE IF NOT EXISTS bookkeeping_settings (
 );
 """
 
+_APPOINTMENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS appointments (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id       INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    appt_date        TEXT NOT NULL,
+    appt_time        TEXT DEFAULT '',
+    duration         INTEGER DEFAULT 50,
+    session_type     TEXT DEFAULT 'Individual',
+    status           TEXT DEFAULT 'Scheduled',
+    notes            TEXT DEFAULT '',
+    created_at       TEXT DEFAULT (datetime('now'))
+);
+"""
+
+
+def _migrate_appointments_table():
+    conn = get_connection()
+    conn.executescript(_APPOINTMENTS_TABLE)
+    conn.commit()
+    conn.close()
+
 
 def _migrate_bookkeeping_tables():
-    _APPOINTMENTS_TABLE = """
-    CREATE TABLE IF NOT EXISTS appointments (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        patient_id       INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-        appt_date        TEXT NOT NULL,
-        appt_time        TEXT DEFAULT '',
-        duration         INTEGER DEFAULT 50,
-        session_type     TEXT DEFAULT 'Individual',
-        status           TEXT DEFAULT 'Scheduled',
-        notes            TEXT DEFAULT '',
-        created_at       TEXT DEFAULT (datetime('now'))
-    );
-    """
-
-
-    def _migrate_appointments_table():
-        conn = get_connection()
-        conn.executescript(_APPOINTMENTS_TABLE)
-        conn.commit()
-        conn.close()
-
-
     conn = get_connection()
     cur = conn.cursor()
     cur.executescript(_BOOKKEEPING_TABLES)
