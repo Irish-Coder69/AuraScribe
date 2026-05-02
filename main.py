@@ -118,9 +118,13 @@ LICENSE_EMAIL_PREF_KEY = "license_registered_email"
 # Every dialog reads these instead of calling winfo_screen* individually.
 SCREEN_W:     int   = 0
 SCREEN_H:     int   = 0
+SCREEN_FIT_W: int   = 0        # smallest usable monitor work-area width
+SCREEN_FIT_H: int   = 0        # smallest usable monitor work-area height
 MACHINE_TYPE: str   = "unknown"  # "laptop", "desktop", or "unknown"
 SCREEN_DPI:   int   = 96         # logical pixels per inch (96 = 100 % scaling)
 UI_SCALE:     float = 1.0        # SCREEN_DPI / 96
+UI_MAX_SCALE: float = 1.0        # highest monitor scale seen at startup
+UI_DENSE_MODE: bool = False      # compact spacing/fonts for tighter displays
 
 
 def _detect_machine_type() -> str:
@@ -153,13 +157,105 @@ def _detect_machine_type() -> str:
     return "unknown"
 
 
+def _monitor_fit_profile(primary_w: int, primary_h: int, primary_dpi: int) -> dict:
+    """Return conservative monitor sizing data for cross-monitor fit.
+
+    On multi-monitor systems, this captures the smallest monitor work-area and
+    the highest DPI scale so UI defaults fit when the app/dialog is moved to a
+    tighter or higher-scale display.
+    """
+    profile = {
+        "count": 1,
+        "min_work_w": max(640, int(primary_w or 1280)),
+        "min_work_h": max(480, int(primary_h or 720)),
+        "max_scale": max(1.0, float(primary_dpi or 96) / 96.0),
+    }
+    if sys.platform != "win32":
+        return profile
+
+    try:
+        import ctypes as _ct
+        from ctypes import wintypes as _wt
+
+        class _RECT(_ct.Structure):
+            _fields_ = [
+                ("left", _wt.LONG),
+                ("top", _wt.LONG),
+                ("right", _wt.LONG),
+                ("bottom", _wt.LONG),
+            ]
+
+        class _MONITORINFO(_ct.Structure):
+            _fields_ = [
+                ("cbSize", _wt.DWORD),
+                ("rcMonitor", _RECT),
+                ("rcWork", _RECT),
+                ("dwFlags", _wt.DWORD),
+            ]
+
+        user32 = _ct.windll.user32
+        shcore = getattr(_ct.windll, "shcore", None)
+        MONITOR_DPI_TYPE_EFFECTIVE = 0
+        monitors = []
+
+        _MONITORENUMPROC = _ct.WINFUNCTYPE(
+            _wt.BOOL,
+            _wt.HANDLE,
+            _wt.HDC,
+            _ct.POINTER(_RECT),
+            _wt.LPARAM,
+        )
+
+        @_MONITORENUMPROC
+        def _enum_cb(hmon, _hdc, _lprc, _lparam):
+            mi = _MONITORINFO()
+            mi.cbSize = _ct.sizeof(_MONITORINFO)
+            if not user32.GetMonitorInfoW(hmon, _ct.byref(mi)):
+                return True
+
+            work_w = int(mi.rcWork.right - mi.rcWork.left)
+            work_h = int(mi.rcWork.bottom - mi.rcWork.top)
+            dpi = int(primary_dpi or 96)
+
+            if shcore is not None:
+                try:
+                    dpi_x = _wt.UINT()
+                    dpi_y = _wt.UINT()
+                    hr = shcore.GetDpiForMonitor(
+                        hmon,
+                        MONITOR_DPI_TYPE_EFFECTIVE,
+                        _ct.byref(dpi_x),
+                        _ct.byref(dpi_y),
+                    )
+                    if hr == 0 and dpi_x.value > 0:
+                        dpi = int(dpi_x.value)
+                except Exception:
+                    pass
+
+            if work_w > 0 and work_h > 0:
+                monitors.append((work_w, work_h, dpi))
+            return True
+
+        user32.EnumDisplayMonitors(0, 0, _enum_cb, 0)
+        if monitors:
+            profile["count"] = len(monitors)
+            profile["min_work_w"] = max(640, min(m[0] for m in monitors))
+            profile["min_work_h"] = max(480, min(m[1] for m in monitors))
+            profile["max_scale"] = max(float(m[2]) / 96.0 for m in monitors)
+    except Exception:
+        pass
+
+    return profile
+
+
 def _screen_fit(desired_w: int, desired_h: int, pad: int = 80) -> tuple[int, int]:
     """Return (w, h) capped to the available screen minus *pad* on each axis.
 
     Reads the module-level SCREEN_W / SCREEN_H that are set once at startup.
     Falls back to a live query if they have not been populated yet.
     """
-    sw, sh = SCREEN_W, SCREEN_H
+    sw = SCREEN_FIT_W or SCREEN_W
+    sh = SCREEN_FIT_H or SCREEN_H
     if sw == 0 or sh == 0:
         try:
             root = tk._default_root  # type: ignore[attr-defined]
@@ -5870,28 +5966,35 @@ class BookkeepingTab(ttk.Frame):
     def _build(self):
         tb = ttk.Frame(self, padding=(8, 6))
         tb.pack(fill="x")
-        btn(tb, "+ New Expense", self._new_expense, "Accent.TButton").pack(side="left", padx=4)
-        btn(tb, "+ New Income", self._new_income, "Accent.TButton").pack(side="left", padx=2)
-        btn(tb, "+ New Entry", self._new_entry).pack(side="left", padx=2)
-        btn(tb, "Edit", self._edit_entry).pack(side="left", padx=2)
-        btn(tb, "Delete", self._delete_entry, "Danger.TButton").pack(side="left", padx=2)
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
-        btn(tb, "Opening Balance", self._set_opening_balance).pack(side="left", padx=2)
-        btn(tb, "Monthly Summary", self._monthly_summary).pack(side="left", padx=2)
-        btn(tb, "Annual Summary", self._annual_summary).pack(side="left", padx=2)
-        btn(tb, "Export CSV", self._export_csv).pack(side="left", padx=2)
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        _pad = 2 if UI_DENSE_MODE else 4
+        row1 = ttk.Frame(tb)
+        row1.pack(fill="x", pady=(0, 2))
+        row2 = ttk.Frame(tb)
+        row2.pack(fill="x")
 
-        ttk.Label(tb, text="Year:").pack(side="left")
+        btn(row1, "+ New Expense", self._new_expense, "Accent.TButton").pack(side="left", padx=(_pad, _pad))
+        btn(row1, "+ New Income", self._new_income, "Accent.TButton").pack(side="left", padx=(_pad, _pad))
+        btn(row1, "+ New Entry", self._new_entry).pack(side="left", padx=(_pad, _pad))
+        btn(row1, "Edit", self._edit_entry).pack(side="left", padx=(_pad, _pad))
+        btn(row1, "Delete", self._delete_entry, "Danger.TButton").pack(side="left", padx=(_pad, _pad))
+        ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
+        btn(row1, "Opening Balance", self._set_opening_balance).pack(side="left", padx=(_pad, _pad))
+
+        btn(row2, "Monthly Summary", self._monthly_summary).pack(side="left", padx=(_pad, _pad))
+        btn(row2, "Annual Summary", self._annual_summary).pack(side="left", padx=(_pad, _pad))
+        btn(row2, "Export CSV", self._export_csv).pack(side="left", padx=(_pad, _pad))
+        ttk.Separator(row2, orient="vertical").pack(side="left", fill="y", padx=8)
+
+        ttk.Label(row2, text="Year:").pack(side="left")
         years = [str(y) for y in range(date.today().year + 1, 2019, -1)]
-        ttk.Combobox(tb, textvariable=self._year_var, values=years, width=6, state="readonly").pack(side="left", padx=3)
+        ttk.Combobox(row2, textvariable=self._year_var, values=years, width=6, state="readonly").pack(side="left", padx=3)
         self._year_var.trace_add("write", lambda *a: self.refresh())
 
-        ttk.Label(tb, text="Month:").pack(side="left", padx=(8, 0))
-        ttk.Combobox(tb, textvariable=self._month_var, values=_BK_MONTHS, width=11, state="readonly").pack(side="left", padx=3)
+        ttk.Label(row2, text="Month:").pack(side="left", padx=(8, 0))
+        ttk.Combobox(row2, textvariable=self._month_var, values=_BK_MONTHS, width=11, state="readonly").pack(side="left", padx=3)
         self._month_var.trace_add("write", lambda *a: self.refresh())
 
-        self._lbl_count = ttk.Label(tb, text="", foreground=MUTED)
+        self._lbl_count = ttk.Label(row2, text="", foreground=MUTED)
         self._lbl_count.pack(side="right", padx=8)
 
         outer = ttk.Frame(self)
@@ -5915,6 +6018,7 @@ class BookkeepingTab(ttk.Frame):
         )
         self.tv = ttk.Treeview(frm, columns=self._cols, show="headings", selectmode="browse")
 
+        _dense_col_scale = 0.88 if UI_DENSE_MODE else (0.94 if SCREEN_FIT_W and SCREEN_FIT_W < 1500 else 1.0)
         col_defs = (
             [("Date", 80, "w"), ("Ck #", 55, "w"), ("Payee / Description", 190, "w"),
              ("Memo", 130, "w"), ("Tax", 38, "center")] +
@@ -5923,8 +6027,9 @@ class BookkeepingTab(ttk.Frame):
             [("Balance", 96, "e")]
         )
         for (hdr, w, anc), col in zip(col_defs, self._cols):
+            w = max(46, int(w * _dense_col_scale))
             self.tv.heading(col, text=hdr, anchor="w")
-            self.tv.column(col, width=w, minwidth=w, stretch=False, anchor=anc)
+            self.tv.column(col, width=w, minwidth=max(44, int(w * 0.82)), stretch=False, anchor=anc)
 
         vsb = ttk.Scrollbar(frm, orient="vertical", command=self.tv.yview)
         self._hsb = ttk.Scrollbar(frm, orient="horizontal", command=self._on_xscroll)
@@ -5939,10 +6044,11 @@ class BookkeepingTab(ttk.Frame):
 
         self.tv.tag_configure("odd", background=self._ROW_ODD, foreground="#1a1a1a")
         self.tv.tag_configure("even", background=self._ROW_EVEN, foreground="#1a1a1a")
-        self.tv.tag_configure("month_hdr", background=self._MONTH_HDR_BG, foreground=self._MONTH_HDR_FG, font=("Arial", 11, "bold"))
-        self.tv.tag_configure("month_tot", background=self._MONTH_TOT_BG, foreground=self._MONTH_TOT_FG, font=("Arial", 11, "bold"))
-        self.tv.tag_configure("year_tot", background=self._YEAR_TOT_BG, foreground=self._YEAR_TOT_FG, font=("Arial", 11, "bold"))
-        self.tv.tag_configure("opn_bal", background=self._OPN_BAL_BG, foreground="#78350f", font=("Arial", 11, "italic"))
+        _tag_fs = max(10, int(FONT_UI[1]))
+        self.tv.tag_configure("month_hdr", background=self._MONTH_HDR_BG, foreground=self._MONTH_HDR_FG, font=("Arial", _tag_fs, "bold"))
+        self.tv.tag_configure("month_tot", background=self._MONTH_TOT_BG, foreground=self._MONTH_TOT_FG, font=("Arial", _tag_fs, "bold"))
+        self.tv.tag_configure("year_tot", background=self._YEAR_TOT_BG, foreground=self._YEAR_TOT_FG, font=("Arial", _tag_fs, "bold"))
+        self.tv.tag_configure("opn_bal", background=self._OPN_BAL_BG, foreground="#78350f", font=("Arial", _tag_fs, "italic"))
         self.tv.tag_configure("neg_bal", foreground="#dc2626")
 
         sb = ttk.Frame(self, padding=(8, 3))
@@ -5992,7 +6098,7 @@ class BookkeepingTab(ttk.Frame):
             if xe <= xs:
                 return
             c.create_rectangle(xs, 1, xe, 21, fill=color, outline="#aaa")
-            c.create_text((xs + xe) / 2, 11, text=label, font=("Arial", 9, "bold"), fill=fg)
+            c.create_text((xs + xe) / 2, 11, text=label, font=("Arial", 8 if UI_DENSE_MODE else 9, "bold"), fill=fg)
 
         _band(_BK_INC_COLS[0][0], _BK_INC_COLS[-1][0], self._INC_BAND, "INCOME", "#14532d")
         _band(_BK_EXP_COLS[0][0], _BK_EXP_COLS[-1][0], self._EXP_BAND, "EXPENSES", "#7f1d1d")
@@ -6487,7 +6593,8 @@ class TheraTrakApp(tk.Tk):
         self.title(f"TheraTrak Pro - {self._version}")
 
         # ── Detect display and hardware environment once at startup ──────────
-        global SCREEN_W, SCREEN_H, MACHINE_TYPE, SCREEN_DPI, UI_SCALE
+        global SCREEN_W, SCREEN_H, SCREEN_FIT_W, SCREEN_FIT_H
+        global MACHINE_TYPE, SCREEN_DPI, UI_SCALE, UI_MAX_SCALE, UI_DENSE_MODE
         SCREEN_W     = self.winfo_screenwidth()
         SCREEN_H     = self.winfo_screenheight()
         MACHINE_TYPE = _detect_machine_type()
@@ -6496,16 +6603,29 @@ class TheraTrakApp(tk.Tk):
             UI_SCALE   = SCREEN_DPI / 96.0
         except Exception:
             pass
+        _mp = _monitor_fit_profile(SCREEN_W, SCREEN_H, SCREEN_DPI)
+        SCREEN_FIT_W = int(_mp.get("min_work_w", SCREEN_W))
+        SCREEN_FIT_H = int(_mp.get("min_work_h", SCREEN_H))
+        UI_MAX_SCALE = float(_mp.get("max_scale", UI_SCALE))
+        UI_DENSE_MODE = (SCREEN_FIT_W < 1366 or SCREEN_FIT_H < 900 or UI_MAX_SCALE >= 1.50)
         _append_startup_log(
             f"Display: {SCREEN_W}x{SCREEN_H}  DPI: {SCREEN_DPI}  "
             f"Scale: {UI_SCALE:.2f}x  Machine: {MACHINE_TYPE}"
+        )
+        _append_startup_log(
+            f"Monitors: {_mp.get('count', 1)}  FitArea: {SCREEN_FIT_W}x{SCREEN_FIT_H}  "
+            f"MaxScale: {UI_MAX_SCALE:.2f}x  DenseMode: {'yes' if UI_DENSE_MODE else 'no'}"
         )
 
         # Adapt base font size for small/laptop screens so the UI fits without
         # scrolling.  Screens narrower than 1280px or shorter than 900px (typical
         # laptop) use 11pt; everything else keeps the default 12pt.
         global FONT_UI, FONT_SM, FONT_LG, FONT_H1, FONT_MONO
-        _fsize = 11 if (SCREEN_H < 900 or SCREEN_W < 1280) else 12
+        _fsize = 12
+        if SCREEN_FIT_H < 850 or SCREEN_FIT_W < 1220 or UI_MAX_SCALE >= 1.75:
+            _fsize = 10
+        elif SCREEN_FIT_H < 950 or SCREEN_FIT_W < 1400 or UI_MAX_SCALE >= 1.40:
+            _fsize = 11
         if _fsize != 12:
             FONT_UI   = ("Arial", _fsize)
             FONT_SM   = ("Arial", _fsize)
