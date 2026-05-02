@@ -723,25 +723,28 @@ def ttk_style():
     except Exception:
         pass
     _fs = FONT_UI[1]  # honours adaptive size set by TheraTrakApp.__init__
+    _btn_pad = 2 if UI_DENSE_MODE else 4
+    _entry_pad = 2 if UI_DENSE_MODE else 3
+    _tab_pad = [8, 4] if UI_DENSE_MODE else [10, 5]
     style.master.option_add("*Font",       ("Arial", _fs))
     style.master.option_add("*Text.Font",  ("Arial", _fs))
     style.master.option_add("*Entry.Font", ("Arial", _fs))
     style.configure("TFrame", background=BG)
     style.configure("TLabel", background=BG, font=FONT_UI)
-    style.configure("TButton", font=FONT_UI, padding=4)
-    style.configure("TEntry", font=FONT_UI, padding=3)
+    style.configure("TButton", font=FONT_UI, padding=_btn_pad)
+    style.configure("TEntry", font=FONT_UI, padding=_entry_pad)
     style.configure("TCombobox", font=FONT_UI)
     style.configure("TNotebook", background=HDR_BG, tabmargins=[2, 4, 2, 0])
-    style.configure("TNotebook.Tab", background=HDR_BG, foreground="white", font=("Arial", _fs, "bold"), padding=[10, 5])
+    style.configure("TNotebook.Tab", background=HDR_BG, foreground="white", font=("Arial", _fs, "bold"), padding=_tab_pad)
     style.map("TNotebook.Tab", background=[("selected", BG), ("active", ACCENT)], foreground=[("selected", HDR_BG), ("active", "white")])
-    style.configure("Accent.TButton", background=ACCENT, foreground="white", font=("Arial", _fs, "bold"), padding=5)
+    style.configure("Accent.TButton", background=ACCENT, foreground="white", font=("Arial", _fs, "bold"), padding=_btn_pad + 1)
     style.map("Accent.TButton", background=[("active", ACCENT2), ("pressed", ACCENT2)])
-    style.configure("Danger.TButton", background=DANGER, foreground="white", font=("Arial", _fs, "bold"), padding=5)
+    style.configure("Danger.TButton", background=DANGER, foreground="white", font=("Arial", _fs, "bold"), padding=_btn_pad + 1)
     # Derive row height from actual font metrics so text is not clipped on
     # high-DPI laptop displays.
     _font_metrics = tkFont.Font(root=style.master, font=FONT_UI).metrics()
     _line_h = int(_font_metrics.get("linespace", 16))
-    _row_h = max(24, _line_h + 8)
+    _row_h = max(22 if UI_DENSE_MODE else 24, _line_h + (6 if UI_DENSE_MODE else 8))
     style.configure("Treeview", font=FONT_UI, rowheight=_row_h, background=ROW_ODD, fieldbackground=ROW_ODD)
     style.configure("Treeview.Heading", font=("Arial", _fs, "bold"), background=HDR_BG, foreground="white")
     style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", "#1e3a5f")])
@@ -750,7 +753,7 @@ def ttk_style():
 
 def lframe(parent, text, **kw):
     """Labelled ttk.LabelFrame with consistent styling."""
-    f = ttk.LabelFrame(parent, text=text, padding=8, **kw)
+    f = ttk.LabelFrame(parent, text=text, padding=(6 if UI_DENSE_MODE else 8), **kw)
     return f
 
 
@@ -6018,7 +6021,7 @@ class BookkeepingTab(ttk.Frame):
         )
         self.tv = ttk.Treeview(frm, columns=self._cols, show="headings", selectmode="browse")
 
-        _dense_col_scale = 0.88 if UI_DENSE_MODE else (0.94 if SCREEN_FIT_W and SCREEN_FIT_W < 1500 else 1.0)
+        _dense_col_scale = 0.80 if UI_DENSE_MODE else (0.90 if SCREEN_FIT_W and SCREEN_FIT_W < 1700 else 1.0)
         col_defs = (
             [("Date", 80, "w"), ("Ck #", 55, "w"), ("Payee / Description", 190, "w"),
              ("Memo", 130, "w"), ("Tax", 38, "center")] +
@@ -6607,7 +6610,7 @@ class TheraTrakApp(tk.Tk):
         SCREEN_FIT_W = int(_mp.get("min_work_w", SCREEN_W))
         SCREEN_FIT_H = int(_mp.get("min_work_h", SCREEN_H))
         UI_MAX_SCALE = float(_mp.get("max_scale", UI_SCALE))
-        UI_DENSE_MODE = (SCREEN_FIT_W < 1366 or SCREEN_FIT_H < 900 or UI_MAX_SCALE >= 1.50)
+        UI_DENSE_MODE = (SCREEN_FIT_W < 1600 or SCREEN_FIT_H < 980 or UI_MAX_SCALE >= 1.25)
         _append_startup_log(
             f"Display: {SCREEN_W}x{SCREEN_H}  DPI: {SCREEN_DPI}  "
             f"Scale: {UI_SCALE:.2f}x  Machine: {MACHINE_TYPE}"
@@ -6622,9 +6625,11 @@ class TheraTrakApp(tk.Tk):
         # laptop) use 11pt; everything else keeps the default 12pt.
         global FONT_UI, FONT_SM, FONT_LG, FONT_H1, FONT_MONO
         _fsize = 12
-        if SCREEN_FIT_H < 850 or SCREEN_FIT_W < 1220 or UI_MAX_SCALE >= 1.75:
+        if SCREEN_FIT_H < 820 or SCREEN_FIT_W < 1180 or UI_MAX_SCALE >= 1.60:
+            _fsize = 9
+        elif SCREEN_FIT_H < 900 or SCREEN_FIT_W < 1366 or UI_MAX_SCALE >= 1.35:
             _fsize = 10
-        elif SCREEN_FIT_H < 950 or SCREEN_FIT_W < 1400 or UI_MAX_SCALE >= 1.40:
+        elif SCREEN_FIT_H < 1020 or SCREEN_FIT_W < 1600 or UI_MAX_SCALE >= 1.15:
             _fsize = 11
         if _fsize != 12:
             FONT_UI   = ("Arial", _fsize)
@@ -6633,8 +6638,10 @@ class TheraTrakApp(tk.Tk):
             FONT_H1   = ("Arial", _fsize, "bold")
             FONT_MONO = ("Arial", _fsize)
 
-        win_w = min(1280, SCREEN_W - 40)
-        win_h = min(820,  SCREEN_H - 60)
+        _fit_w = SCREEN_FIT_W or SCREEN_W
+        _fit_h = SCREEN_FIT_H or SCREEN_H
+        win_w = min(1280, max(980, _fit_w - 28))
+        win_h = min(820,  max(620, _fit_h - 56))
         self.geometry(f"{win_w}x{win_h}+{(SCREEN_W-win_w)//2}+{(SCREEN_H-win_h)//2}")
         self.minsize(800, 540)
 
