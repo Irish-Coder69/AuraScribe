@@ -170,6 +170,42 @@ def _screen_fit(desired_w: int, desired_h: int, pad: int = 80) -> tuple[int, int
     if sw == 0 or sh == 0:
         return desired_w, desired_h
     return min(desired_w, max(sw - pad, 200)), min(desired_h, max(sh - pad, 150))
+
+
+def _mousewheel_units(event) -> int:
+    """Translate mouse-wheel events to Tk scroll units across platforms."""
+    if hasattr(event, "num"):
+        if event.num == 4:
+            return -1
+        if event.num == 5:
+            return 1
+    delta = int(getattr(event, "delta", 0) or 0)
+    if delta == 0:
+        return 0
+    units = int(-delta / 120)
+    return units if units != 0 else (-1 if delta > 0 else 1)
+
+
+def _bind_mousewheel_recursive(root_widget, yview_scroll):
+    """Bind wheel scrolling for a widget tree to a shared vertical scroller."""
+    def _on_mousewheel(event):
+        units = _mousewheel_units(event)
+        if units:
+            yview_scroll(units, "units")
+            return "break"
+        return None
+
+    def _bind_tree(widget):
+        try:
+            widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+            widget.bind("<Button-4>", _on_mousewheel, add="+")
+            widget.bind("<Button-5>", _on_mousewheel, add="+")
+        except Exception:
+            return
+        for child in widget.winfo_children():
+            _bind_tree(child)
+
+    _bind_tree(root_widget)
 LICENSE_ACTIVATED_AT_PREF_KEY = "license_activated_at"
 LICENSE_TRIAL_START_PREF_KEY = "license_trial_start"
 LICENSE_TRIAL_DAYS = 14
@@ -712,6 +748,7 @@ class UserDirectoryDialog(tk.Toplevel):
         self.tv.configure(yscrollcommand=vsb.set)
         self.tv.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
+        _bind_mousewheel_recursive(self.tv, self.tv.yview_scroll)
         self.tv.bind("<<TreeviewSelect>>", self._on_select)
 
         # ── Right: edit form ─────────────────────────────────────────────────
@@ -728,6 +765,7 @@ class UserDirectoryDialog(tk.Toplevel):
         fid = scroll_canvas.create_window((0, 0), window=form, anchor="nw")
         form.bind("<Configure>", lambda e: scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all")))
         scroll_canvas.bind("<Configure>", lambda e: scroll_canvas.itemconfigure(fid, width=e.width))
+        _bind_mousewheel_recursive(form, scroll_canvas.yview_scroll)
 
         def fv(name):
             v = tk.StringVar()
@@ -899,13 +937,24 @@ class CreateAccountDialog(tk.Toplevel):
     def _build(self):
         outer = ttk.Frame(self)
         outer.pack(fill="both", expand=True)
-        outer.columnconfigure(0, weight=1)  # left spacer
-        outer.columnconfigure(1, weight=0)  # content
-        outer.columnconfigure(2, weight=1)  # right spacer
-        outer.rowconfigure(0, weight=1)
 
-        frm = ttk.Frame(outer, padding=20)
-        frm.grid(row=0, column=1, sticky="n", pady=120)
+        canvas = tk.Canvas(outer, background=BG, highlightthickness=0)
+        vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        frm = ttk.Frame(canvas, padding=20)
+        win_id = canvas.create_window((0, 0), window=frm, anchor="n")
+
+        def _sync_scroll(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfigure(win_id, width=canvas.winfo_width())
+
+        frm.bind("<Configure>", _sync_scroll)
+        canvas.bind("<Configure>", _sync_scroll)
+        _bind_mousewheel_recursive(frm, canvas.yview_scroll)
+
         frm.columnconfigure(0, weight=0, minsize=130)
         frm.columnconfigure(1, weight=0, minsize=200)
         frm.columnconfigure(2, weight=0, minsize=40)  # spacer
@@ -1216,6 +1265,7 @@ class DSMPicker(tk.Toplevel):
         self.tv.configure(yscrollcommand=sb.set)
         self.tv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+        _bind_mousewheel_recursive(self.tv, self.tv.yview_scroll)
         self.tv.bind("<Double-1>", self._select)
 
         bot = ttk.Frame(self, padding=8)
@@ -1275,7 +1325,27 @@ class PatientDialog(tk.Toplevel):
         return v
 
     def _build(self):
-        nb = ttk.Notebook(self)
+        outer = ttk.Frame(self)
+        outer.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(outer, background=BG, highlightthickness=0)
+        vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        body = ttk.Frame(canvas, padding=8)
+        win_id = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _sync_scroll(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfigure(win_id, width=canvas.winfo_width())
+
+        body.bind("<Configure>", _sync_scroll)
+        canvas.bind("<Configure>", _sync_scroll)
+        _bind_mousewheel_recursive(body, canvas.yview_scroll)
+
+        nb = ttk.Notebook(body)
         nb.pack(fill="both", expand=True, padx=8, pady=8)
 
         # ── Demographics tab ──────────────────────────────────────────────────
@@ -1435,7 +1505,7 @@ class PatientDialog(tk.Toplevel):
         ttk.Entry(f3, textvariable=self._fld("other_date_qual"), width=8).grid(row=5, column=1, sticky="w")
 
         # ── Save / Cancel ─────────────────────────────────────────────────────
-        bot = ttk.Frame(self, padding=8)
+        bot = ttk.Frame(body, padding=8)
         bot.pack(fill="x", side="bottom")
         btn(bot, "Save Patient", self._save, "Accent.TButton").pack(side="left", padx=6)
         btn(bot, "Cancel", self.destroy).pack(side="left")
@@ -1595,6 +1665,7 @@ class SessionDialog(tk.Toplevel):
             t.configure(yscrollcommand=sb.set)
             t.pack(side="left", fill="both", expand=True)
             sb.pack(side="right", fill="y")
+            _bind_mousewheel_recursive(t, t.yview_scroll)
             setattr(self, attr, t)
             return frm
 
