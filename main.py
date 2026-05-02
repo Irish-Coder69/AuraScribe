@@ -5969,23 +5969,23 @@ class BookkeepingTab(ttk.Frame):
     def _build(self):
         tb = ttk.Frame(self, padding=(8, 6))
         tb.pack(fill="x")
-        _pad = 2 if UI_DENSE_MODE else 4
+        # Always use two rows — bookkeeping has too many controls for one row
         row1 = ttk.Frame(tb)
-        row1.pack(fill="x", pady=(0, 2))
+        row1.pack(fill="x", pady=(0, 4))
         row2 = ttk.Frame(tb)
         row2.pack(fill="x")
 
-        btn(row1, "+ New Expense", self._new_expense, "Accent.TButton").pack(side="left", padx=(_pad, _pad))
-        btn(row1, "+ New Income", self._new_income, "Accent.TButton").pack(side="left", padx=(_pad, _pad))
-        btn(row1, "+ New Entry", self._new_entry).pack(side="left", padx=(_pad, _pad))
-        btn(row1, "Edit", self._edit_entry).pack(side="left", padx=(_pad, _pad))
-        btn(row1, "Delete", self._delete_entry, "Danger.TButton").pack(side="left", padx=(_pad, _pad))
+        btn(row1, "+ New Expense", self._new_expense, "Accent.TButton").pack(side="left", padx=(4, 4))
+        btn(row1, "+ New Income", self._new_income, "Accent.TButton").pack(side="left", padx=(4, 4))
+        btn(row1, "+ New Entry", self._new_entry).pack(side="left", padx=(4, 4))
+        btn(row1, "Edit", self._edit_entry).pack(side="left", padx=(4, 4))
+        btn(row1, "Delete", self._delete_entry, "Danger.TButton").pack(side="left", padx=(4, 4))
         ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
-        btn(row1, "Opening Balance", self._set_opening_balance).pack(side="left", padx=(_pad, _pad))
+        btn(row1, "Opening Balance", self._set_opening_balance).pack(side="left", padx=(4, 4))
 
-        btn(row2, "Monthly Summary", self._monthly_summary).pack(side="left", padx=(_pad, _pad))
-        btn(row2, "Annual Summary", self._annual_summary).pack(side="left", padx=(_pad, _pad))
-        btn(row2, "Export CSV", self._export_csv).pack(side="left", padx=(_pad, _pad))
+        btn(row2, "Monthly Summary", self._monthly_summary).pack(side="left", padx=(4, 4))
+        btn(row2, "Annual Summary", self._annual_summary).pack(side="left", padx=(4, 4))
+        btn(row2, "Export CSV", self._export_csv).pack(side="left", padx=(4, 4))
         ttk.Separator(row2, orient="vertical").pack(side="left", fill="y", padx=8)
 
         ttk.Label(row2, text="Year:").pack(side="left")
@@ -6021,18 +6021,18 @@ class BookkeepingTab(ttk.Frame):
         )
         self.tv = ttk.Treeview(frm, columns=self._cols, show="headings", selectmode="browse")
 
-        _dense_col_scale = 0.80 if UI_DENSE_MODE else (0.90 if SCREEN_FIT_W and SCREEN_FIT_W < 1700 else 1.0)
         col_defs = (
-            [("Date", 80, "w"), ("Ck #", 55, "w"), ("Payee / Description", 190, "w"),
-             ("Memo", 130, "w"), ("Tax", 38, "center")] +
+            [("Date", 82, "w"), ("Ck #", 58, "w"), ("Payee / Description", 200, "w"),
+             ("Memo", 140, "w"), ("Tax", 46, "center")] +
             [(lbl, 90, "e") for _, lbl in _BK_INC_COLS] +
-            [(lbl, 82, "e") for _, lbl in _BK_EXP_COLS] +
+            [(lbl, 84, "e") for _, lbl in _BK_EXP_COLS] +
             [("Balance", 96, "e")]
         )
         for (hdr, w, anc), col in zip(col_defs, self._cols):
-            w = max(46, int(w * _dense_col_scale))
+            # Payee stretches to fill spare space; all other columns are fixed.
+            _stretch = (col == "payee")
             self.tv.heading(col, text=hdr, anchor="w")
-            self.tv.column(col, width=w, minwidth=max(44, int(w * 0.82)), stretch=False, anchor=anc)
+            self.tv.column(col, width=w, minwidth=max(50, int(w * 0.75)), stretch=_stretch, anchor=anc)
 
         vsb = ttk.Scrollbar(frm, orient="vertical", command=self.tv.yview)
         self._hsb = ttk.Scrollbar(frm, orient="horizontal", command=self._on_xscroll)
