@@ -5,6 +5,8 @@
 - Ensure Help menu update flow points to GitHub `releases/latest`.
 - Verify no local debug changes are left in source.
 - Use Python 3.11/3.12 build environment (`.venv311` preferred).
+- Confirm GitHub CLI is installed and authenticated (`gh auth status`) before running automated release publish.
+- If `gh` is missing, install it: `winget install --id GitHub.cli --accept-package-agreements --accept-source-agreements`
 
 ## Build
 - Run `./build_installer.ps1` from repo root.
