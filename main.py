@@ -1235,12 +1235,20 @@ class DSMPicker(tk.Toplevel):
         super().__init__(parent)
         apply_window_icon(self)
         self.title("DSM-5 / ICD-10 Code Lookup")
-        _w, _h = _screen_fit(680, 480)
+        _w, _h = _screen_fit(1200, 850, pad=24)
         self.geometry(f"{_w}x{_h}")
+        self.minsize(900, 600)
         self.resizable(True, True)
         self.callback = callback
         self.result = None
         self._build()
+        self.transient(parent)
+        self.lift()
+        self.focus_force()
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            pass
         self.grab_set()
 
     def _build(self):
@@ -1249,7 +1257,8 @@ class DSMPicker(tk.Toplevel):
         ttk.Label(top, text="Search:").pack(side="left")
         self.sv = tk.StringVar()
         self.sv.trace_add("write", lambda *a: self._search())
-        ttk.Entry(top, textvariable=self.sv, width=40).pack(side="left", padx=6)
+        self.search_entry = ttk.Entry(top, textvariable=self.sv, width=40)
+        self.search_entry.pack(side="left", padx=6)
 
         frm = ttk.Frame(self, padding=8)
         frm.pack(fill="both", expand=True)
@@ -1265,7 +1274,7 @@ class DSMPicker(tk.Toplevel):
         self.tv.configure(yscrollcommand=sb.set)
         self.tv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        _bind_mousewheel_recursive(self.tv, self.tv.yview_scroll)
+        _bind_mousewheel_recursive(self, self.tv.yview_scroll)
         self.tv.bind("<Double-1>", self._select)
 
         bot = ttk.Frame(self, padding=8)
@@ -1274,6 +1283,7 @@ class DSMPicker(tk.Toplevel):
         btn(bot, "Cancel", self.destroy).pack(side="left")
 
         self._load_all()
+        self.after(0, self.search_entry.focus_set)
 
     def _load_all(self):
         self.tv.delete(*self.tv.get_children())
