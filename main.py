@@ -1412,16 +1412,8 @@ class PatientDialog(tk.Toplevel):
 
         ttk.Label(f1, text="Emergency Contact").grid(row=7, column=0, sticky="e", padx=4, pady=3)
         ttk.Entry(f1, textvariable=self._fld("emr_name"), width=22).grid(row=7, column=1, sticky="ew", padx=(0,8))
-        ttk.Label(f1, text="Relation").grid(row=7, column=2, sticky="e", padx=4)
-        ttk.Combobox(
-            f1,
-            textvariable=self._fld("emr_relation"),
-            values=["Self", "Spouse", "Child", "Other"],
-            width=12,
-            state="readonly",
-        ).grid(row=7, column=3, sticky="w")
-        ttk.Label(f1, text="Phone").grid(row=7, column=4, sticky="e", padx=4)
-        ttk.Entry(f1, textvariable=self._fld("emr_phone"), width=16).grid(row=7, column=5, sticky="w")
+        ttk.Label(f1, text="Phone").grid(row=7, column=2, sticky="e", padx=4)
+        ttk.Entry(f1, textvariable=self._fld("emr_phone"), width=16).grid(row=7, column=3, sticky="w")
 
         # Diagnoses
         dx_frame = lframe(f1, "Primary Diagnoses (ICD-10)")
