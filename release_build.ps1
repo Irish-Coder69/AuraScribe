@@ -12,13 +12,30 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$python311 = Join-Path $root '.venv311\Scripts\python.exe'
-$python = if (Test-Path $python311) { $python311 } else { Join-Path $root '.venv\Scripts\python.exe' }
+$python = $null
+$pythonCandidates = @(
+    (Join-Path $root '.venv311\Scripts\python.exe'),
+    (Join-Path $root '.venv\Scripts\python.exe')
+)
+foreach ($candidate in $pythonCandidates) {
+    if (-not (Test-Path $candidate)) {
+        continue
+    }
+    try {
+        $probe = & $candidate -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $probe -match '^\d+\.\d+$') {
+            $python = $candidate
+            break
+        }
+    } catch {
+        continue
+    }
+}
 $versionJson = Join-Path $root 'version.json'
 $installerExe = Join-Path $root 'release\TheraTrak-Pro-Installer.exe'
 
 if (-not (Test-Path $python)) {
-    throw 'Python virtual environment not found (.venv311 or .venv).'
+    throw 'No runnable Python virtual environment found (.venv311 or .venv).'
 }
 
 function Invoke-Step {
