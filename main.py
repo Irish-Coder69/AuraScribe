@@ -6973,6 +6973,9 @@ class TheraTrakApp(tk.Tk):
         txt.configure(state="disabled")
 
     def _show_display_diagnostics(self):
+        # Run a fresh hardware probe at dialog-open time so support data is live,
+        # not just the startup-cached snapshot.
+        live_machine = _detect_machine_type()
         cur_w = self.winfo_screenwidth()
         cur_h = self.winfo_screenheight()
         try:
@@ -6982,7 +6985,10 @@ class TheraTrakApp(tk.Tk):
             cur_dpi = SCREEN_DPI
             cur_scale = UI_SCALE
 
-        machine = MACHINE_TYPE or "unknown"
+        live_profile = _monitor_fit_profile(cur_w, cur_h, cur_dpi)
+
+        startup_machine = MACHINE_TYPE or "unknown"
+        current_machine = live_machine or startup_machine or "unknown"
         startup_log = STARTUP_LOG_FILE
 
         lines = [
@@ -6992,13 +6998,17 @@ class TheraTrakApp(tk.Tk):
             f"Platform: {platform.platform()}",
             f"Python: {sys.version.split()[0]}",
             "",
-            f"Machine Type: {machine}",
+            f"Machine Type (startup cached): {startup_machine}",
+            f"Machine Type (live probe): {current_machine}",
             f"Startup Display (cached): {SCREEN_W} x {SCREEN_H}",
             f"Current Display (live): {cur_w} x {cur_h}",
+            f"Detected Monitors (live): {int(live_profile.get('count', 1))}",
+            f"Smallest Monitor Work Area (live): {int(live_profile.get('min_work_w', cur_w))} x {int(live_profile.get('min_work_h', cur_h))}",
             f"Startup DPI (cached): {SCREEN_DPI}",
             f"Current DPI (live): {cur_dpi}",
             f"Startup UI Scale (cached): {UI_SCALE:.2f}x",
             f"Current UI Scale (live): {cur_scale:.2f}x",
+            f"Highest Monitor Scale (live): {float(live_profile.get('max_scale', cur_scale)):.2f}x",
             f"Base UI Font Size: {FONT_UI[1]} pt",
             "",
             f"Database: {db.DB_PATH}",
@@ -7011,7 +7021,9 @@ class TheraTrakApp(tk.Tk):
         dlg.title("Display Diagnostics")
         dlg.geometry("760x460")
         dlg.minsize(620, 360)
-        dlg.transient(self)
+        # Keep this as a normal top-level so Windows shows full control box
+        # and users can maximize the diagnostics window.
+        dlg.resizable(True, True)
 
         frm = ttk.Frame(dlg, padding=10)
         frm.pack(fill="both", expand=True)
