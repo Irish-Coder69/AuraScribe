@@ -5327,7 +5327,7 @@ class BookkeepingEntryDialog(tk.Toplevel):
     def _money_entry(self, parent, key: str, row: int, col: int, label: str):
         ttk.Label(parent, text=label).grid(row=row, column=col, sticky="e", padx=(6, 2), pady=2)
         e = ttk.Entry(parent, textvariable=self._mkvar(key), width=10)
-        e.grid(row=row, column=col + 1, sticky="w", padx=(0, 6), pady=2)
+        e.grid(row=row, column=col + 1, sticky="ew", padx=(0, 6), pady=2)
 
     def _bind_quick_workflow(self, widget, callback=None):
         def _handler(_event=None):
@@ -5373,14 +5373,14 @@ class BookkeepingEntryDialog(tk.Toplevel):
 
         ttk.Label(top, text="Date *").grid(row=0, column=0, sticky="e", padx=(4, 2), pady=3)
         self._date_entry = ttk.Entry(top, textvariable=self._mkvar("entry_date"), width=14)
-        self._date_entry.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=3)
+        self._date_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=3)
 
         ttk.Label(top, text="Check #").grid(row=0, column=2, sticky="e", padx=(4, 2), pady=3)
         self._check_entry = ttk.Entry(top, textvariable=self._mkvar("check_number"), width=12)
-        self._check_entry.grid(row=0, column=3, sticky="w", padx=(0, 8), pady=3)
+        self._check_entry.grid(row=0, column=3, sticky="ew", padx=(0, 8), pady=3)
 
         ttk.Label(top, text="Payee / Description").grid(row=1, column=0, sticky="e", padx=(4, 2), pady=3)
-        self._payee_entry = ttk.Entry(top, textvariable=self._mkvar("payee"), width=34)
+        self._payee_entry = ttk.Entry(top, textvariable=self._mkvar("payee"), width=26)
         self._payee_entry.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(0, 8), pady=3)
 
         ttk.Label(top, text="Memo").grid(row=2, column=0, sticky="e", padx=(4, 2), pady=3)
@@ -5390,6 +5390,8 @@ class BookkeepingEntryDialog(tk.Toplevel):
         # ── Quick entry (default) ──
         quick = lframe(pad, "Quick Entry")
         quick.pack(fill="x", pady=(0, 8))
+        quick.columnconfigure(4, weight=1)
+        quick.columnconfigure(6, weight=1)
         quick.columnconfigure(7, weight=1)
 
         ttk.Label(quick, text="Type").grid(row=0, column=0, sticky="e", padx=(6, 2), pady=4)
@@ -5406,11 +5408,11 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self._quick_cat_cb = ttk.Combobox(
             quick, textvariable=self._quick_cat_var, width=18, state="readonly"
         )
-        self._quick_cat_cb.grid(row=0, column=4, sticky="w", padx=(0, 12), pady=4)
+        self._quick_cat_cb.grid(row=0, column=4, sticky="ew", padx=(0, 12), pady=4)
 
         ttk.Label(quick, text="Amount").grid(row=0, column=5, sticky="e", padx=(6, 2), pady=4)
         self._quick_amt_entry = ttk.Entry(quick, textvariable=self._quick_amt_var, width=12)
-        self._quick_amt_entry.grid(row=0, column=6, sticky="w", padx=(0, 12), pady=4)
+        self._quick_amt_entry.grid(row=0, column=6, sticky="ew", padx=(0, 12), pady=4)
 
         ttk.Checkbutton(quick, text="Tax Deductible", variable=self._tax_var).grid(
             row=1, column=0, columnspan=3, sticky="w", padx=6, pady=3
@@ -5429,11 +5431,15 @@ class BookkeepingEntryDialog(tk.Toplevel):
 
         inc = lframe(self._detail_wrap, "Money In (Income)")
         inc.pack(fill="x", pady=(0, 8))
+        for i in range(len(_BK_INC_COLS)):
+            inc.columnconfigure((i * 2) + 1, weight=1)
         for i, (key, label) in enumerate(_BK_INC_COLS):
             self._money_entry(inc, key, 0, i * 2, label)
 
         exp = lframe(self._detail_wrap, "Money Out (Expenses)")
         exp.pack(fill="x", pady=(0, 8))
+        for i in range(4):
+            exp.columnconfigure((i * 2) + 1, weight=1)
         for i, (key, label) in enumerate(_BK_EXP_COLS):
             r, c = divmod(i, 4)
             self._money_entry(exp, key, r, c * 2, label)
