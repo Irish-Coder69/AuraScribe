@@ -5312,9 +5312,12 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self.transient(parent)
         self._restore_window_placement()
         self.bind("<Configure>", self._on_window_configure, add="+")
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.protocol("WM_DELETE_WINDOW", self._close_dialog)
         self.grab_set()
         self.after_idle(self._focus_initial_field)
+
+    def _close_dialog(self):
+        self.destroy()
 
     def _on_window_configure(self, _event=None):
         try:
@@ -5350,9 +5353,12 @@ class BookkeepingEntryDialog(tk.Toplevel):
             except tk.TclError:
                 pass
 
-        state = str(saved.get("state") or "normal").strip().lower()
-        if state == "zoomed":
-            self.after_idle(lambda: self.state("zoomed"))
+        # Always reopen in normal mode at the last user-set size/position.
+        # This avoids laptop snap-back behavior when Windows reports stale zoom states.
+        try:
+            self.state("normal")
+        except tk.TclError:
+            pass
 
     def _save_window_placement(self):
         try:
@@ -5371,7 +5377,7 @@ class BookkeepingEntryDialog(tk.Toplevel):
             normal_geom = current_geom
 
         payload = {
-            "state": "zoomed" if state_norm == "zoomed" else "normal",
+            "state": "normal",
             "geometry": normal_geom,
         }
         try:
