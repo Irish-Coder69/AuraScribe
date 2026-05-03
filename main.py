@@ -5305,14 +5305,27 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self._quick_kind_var = tk.StringVar(value="Expense")
         self._quick_cat_var = tk.StringVar(value="")
         self._quick_amt_var = tk.StringVar(value="")
+        self._last_normal_geometry = ""
 
-        self._restore_window_placement()
         self._build()
         self._load()
+        self.transient(parent)
+        self._restore_window_placement()
+        self.bind("<Configure>", self._on_window_configure, add="+")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.grab_set()
-        self.transient(parent)
         self.after_idle(self._focus_initial_field)
+
+    def _on_window_configure(self, _event=None):
+        try:
+            state = str(self.state()).lower()
+            geom = self.geometry()
+        except tk.TclError:
+            return
+        if state == "zoomed":
+            return
+        if geom and "x" in geom:
+            self._last_normal_geometry = geom
 
     def _restore_window_placement(self):
         default_w, default_h = _screen_fit(1100, 760, pad=40)
@@ -5330,9 +5343,10 @@ class BookkeepingEntryDialog(tk.Toplevel):
             return
 
         geom = str(saved.get("geometry") or "").strip()
-        if geom and "x" in geom and "+" in geom:
+        if geom and "x" in geom:
             try:
                 self.geometry(geom)
+                self._last_normal_geometry = geom
             except tk.TclError:
                 pass
 
@@ -5346,9 +5360,19 @@ class BookkeepingEntryDialog(tk.Toplevel):
         except tk.TclError:
             state = "normal"
 
+        state_norm = str(state).lower()
+        try:
+            current_geom = self.geometry()
+        except tk.TclError:
+            current_geom = ""
+
+        normal_geom = self._last_normal_geometry or current_geom
+        if state_norm != "zoomed" and current_geom and "x" in current_geom:
+            normal_geom = current_geom
+
         payload = {
-            "state": "zoomed" if str(state).lower() == "zoomed" else "normal",
-            "geometry": self.geometry(),
+            "state": "zoomed" if state_norm == "zoomed" else "normal",
+            "geometry": normal_geom,
         }
         try:
             db.set_app_preference(self._GEOMETRY_PREF_KEY, json.dumps(payload))
