@@ -127,16 +127,190 @@ UI_SCALE:     float = 1.0        # SCREEN_DPI / 96
 UI_MAX_SCALE: float = 1.0        # highest monitor scale seen at startup
 UI_DENSE_MODE: bool = False      # compact spacing/fonts for tighter displays
 
+_PC_SYSTEM_TYPE_LABELS = {
+    0: "Unspecified",
+    1: "Desktop",
+    2: "Mobile/Laptop",
+    3: "Workstation",
+    4: "Enterprise Server",
+    5: "SOHO Server",
+    6: "Appliance PC",
+    7: "Performance Server",
+    8: "Maximum",
+}
 
-def _detect_machine_type() -> str:
-    """Return 'laptop', 'desktop', or 'unknown'.
+_CHASSIS_TYPE_LABELS = {
+    1: "Other",
+    2: "Unknown",
+    3: "Desktop",
+    4: "Low Profile Desktop",
+    5: "Pizza Box",
+    6: "Mini Tower",
+    7: "Tower",
+    8: "Portable",
+    9: "Laptop",
+    10: "Notebook",
+    11: "Handheld",
+    12: "Docking Station",
+    13: "All in One",
+    14: "Sub Notebook",
+    15: "Space-Saving",
+    16: "Lunch Box",
+    17: "Main System Chassis",
+    18: "Expansion Chassis",
+    19: "Sub Chassis",
+    20: "Bus Expansion Chassis",
+    21: "Peripheral Chassis",
+    22: "Storage Chassis",
+    23: "Rack Mount Chassis",
+    24: "Sealed-Case PC",
+    30: "Tablet",
+    31: "Convertible",
+    32: "Detachable",
+}
 
-    Uses the Windows GetSystemPowerStatus API: if a system battery is reported
-    the machine is treated as a laptop/portable device; otherwise a desktop.
-    No external packages required — only the ctypes stdlib module.
+_PROBE_SOURCE_LABELS = {
+    "none": "No signal",
+    "wmi": "Windows hardware class",
+    "wmi_mixed": "Windows hardware class (mixed)",
+    "power_status": "Windows power status",
+}
+
+
+def _format_pc_system_type(value: object) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        num = int(value)
+    except Exception:
+        return str(value)
+    return f"{num} ({_PC_SYSTEM_TYPE_LABELS.get(num, 'Unknown code')})"
+
+
+def _format_chassis_types(values: object) -> str:
+    if not values:
+        return "n/a"
+    parts = []
+    for value in values if isinstance(values, (list, tuple)) else [values]:
+        try:
+            num = int(value)
+        except Exception:
+            parts.append(str(value))
+            continue
+        parts.append(f"{num} ({_CHASSIS_TYPE_LABELS.get(num, 'Unknown code')})")
+    return ", ".join(parts) if parts else "n/a"
+
+
+def _format_battery_flag(value: object) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        num = int(value)
+    except Exception:
+        return str(value)
+    if num == 128:
+        meaning = "No system battery"
+    elif num == 255:
+        meaning = "Battery status unknown"
+    else:
+        meaning = "Battery present"
+    return f"{num} ({meaning})"
+
+
+def _format_probe_source(value: object) -> str:
+    key = str(value or "none")
+    return _PROBE_SOURCE_LABELS.get(key, key)
+
+
+def _probe_machine_type() -> dict[str, object]:
+    """Return detailed machine-type probe results.
+
+    Uses multiple Windows signals to reduce false positives:
+    - Win32_ComputerSystem.PCSystemType
+    - Win32_SystemEnclosure.ChassisTypes
+    - GetSystemPowerStatus battery presence (fallback)
     """
+    result: dict[str, object] = {
+        "machine_type": "unknown",
+        "pc_system_type": None,
+        "chassis_types": [],
+        "battery_flag": None,
+        "source": "none",
+        "wmi_votes": [],
+    }
     if sys.platform != "win32":
-        return "unknown"
+        return result
+
+    # Prefer WMI-reported hardware class over battery-only heuristics.
+    wmi_votes: list[str] = []
+    try:
+        cmd = [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            (
+                "$pc=(Get-CimInstance Win32_ComputerSystem | "
+                "Select-Object -First 1 -ExpandProperty PCSystemType);"
+                "$ch=(Get-CimInstance Win32_SystemEnclosure | "
+                "Select-Object -First 1 -ExpandProperty ChassisTypes);"
+                "\"$pc|$($ch -join ',')\""
+            ),
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        raw = (result.stdout or "").strip()
+        if result.returncode == 0 and raw:
+            pc_text, _, chassis_text = raw.partition("|")
+            try:
+                pc_val = int(pc_text.strip())
+            except Exception:
+                pc_val = -1
+            if pc_val >= 0:
+                result["pc_system_type"] = pc_val
+
+            # Win32_ComputerSystem.PCSystemType: 2 = Mobile.
+            if pc_val == 2:
+                wmi_votes.append("laptop")
+            elif pc_val in (1, 3, 4, 5, 6, 7, 8):
+                wmi_votes.append("desktop")
+
+            chassis_vals = []
+            for piece in chassis_text.split(","):
+                piece = piece.strip()
+                if not piece:
+                    continue
+                try:
+                    chassis_vals.append(int(piece))
+                except Exception:
+                    continue
+            result["chassis_types"] = list(chassis_vals)
+
+            portable_chassis = {8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32}
+            desktop_chassis = {3, 4, 5, 6, 7, 13, 15, 16, 17, 23, 24}
+            if any(c in portable_chassis for c in chassis_vals):
+                wmi_votes.append("laptop")
+            if any(c in desktop_chassis for c in chassis_vals):
+                wmi_votes.append("desktop")
+    except Exception:
+        pass
+
+    result["wmi_votes"] = list(wmi_votes)
+
+    if wmi_votes:
+        if "desktop" in wmi_votes and "laptop" not in wmi_votes:
+            result["machine_type"] = "desktop"
+            result["source"] = "wmi"
+            return result
+        if "laptop" in wmi_votes and "desktop" not in wmi_votes:
+            result["machine_type"] = "laptop"
+            result["source"] = "wmi"
+            return result
+
     try:
         import ctypes as _ct
 
@@ -152,10 +326,33 @@ def _detect_machine_type() -> str:
 
         _ps = _SYSTEM_POWER_STATUS()
         if _ct.windll.kernel32.GetSystemPowerStatus(_ct.byref(_ps)):
-            return "laptop" if _ps.BatteryFlag != 128 else "desktop"
+            battery_flag = int(_ps.BatteryFlag) & 0xFF
+            result["battery_flag"] = battery_flag
+            if battery_flag == 128:
+                result["machine_type"] = "desktop"  # no system battery present
+                result["source"] = "power_status"
+                return result
+            if battery_flag != 255:
+                result["machine_type"] = "laptop"   # battery information present
+                result["source"] = "power_status"
+                return result
     except Exception:
         pass
-    return "unknown"
+
+    if "desktop" in wmi_votes:
+        result["machine_type"] = "desktop"
+        result["source"] = "wmi_mixed"
+        return result
+    if "laptop" in wmi_votes:
+        result["machine_type"] = "laptop"
+        result["source"] = "wmi_mixed"
+        return result
+    return result
+
+
+def _detect_machine_type() -> str:
+    """Return 'laptop', 'desktop', or 'unknown'."""
+    return str(_probe_machine_type().get("machine_type", "unknown") or "unknown")
 
 
 def _monitor_fit_profile(primary_w: int, primary_h: int, primary_dpi: int) -> dict:
@@ -6975,7 +7172,8 @@ class TheraTrakApp(tk.Tk):
     def _show_display_diagnostics(self):
         # Run a fresh hardware probe at dialog-open time so support data is live,
         # not just the startup-cached snapshot.
-        live_machine = _detect_machine_type()
+        live_machine_probe = _probe_machine_type()
+        live_machine = str(live_machine_probe.get("machine_type", "unknown") or "unknown")
         cur_w = self.winfo_screenwidth()
         cur_h = self.winfo_screenheight()
         try:
@@ -6990,6 +7188,11 @@ class TheraTrakApp(tk.Tk):
         startup_machine = MACHINE_TYPE or "unknown"
         current_machine = live_machine or startup_machine or "unknown"
         startup_log = STARTUP_LOG_FILE
+        pc_system_type = live_machine_probe.get("pc_system_type")
+        chassis_types = live_machine_probe.get("chassis_types") or []
+        battery_flag = live_machine_probe.get("battery_flag")
+        probe_source = str(live_machine_probe.get("source", "none") or "none")
+        wmi_votes = live_machine_probe.get("wmi_votes") or []
 
         lines = [
             "TheraTrak Pro Display Diagnostics",
@@ -7000,6 +7203,11 @@ class TheraTrakApp(tk.Tk):
             "",
             f"Machine Type (startup cached): {startup_machine}",
             f"Machine Type (live probe): {current_machine}",
+            f"Machine Type Source (live): {_format_probe_source(probe_source)}",
+            f"PC System Type (live raw): {_format_pc_system_type(pc_system_type)}",
+            f"Chassis Types (live raw): {_format_chassis_types(chassis_types)}",
+            f"Battery Flag (live raw): {_format_battery_flag(battery_flag)}",
+            f"WMI Votes (live): {', '.join(str(v) for v in wmi_votes) if wmi_votes else 'none'}",
             f"Startup Display (cached): {SCREEN_W} x {SCREEN_H}",
             f"Current Display (live): {cur_w} x {cur_h}",
             f"Detected Monitors (live): {int(live_profile.get('count', 1))}",
