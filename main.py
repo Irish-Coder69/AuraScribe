@@ -5280,6 +5280,8 @@ _BK_EXP_COLS  = [("exp_rent",         "Rent"),
 class BookkeepingEntryDialog(tk.Toplevel):
     """Add / Edit a single bookkeeping entry."""
 
+    _GEOMETRY_PREF_KEY = "bookkeeping_entry_geometry"
+
     def __init__(self, parent, entry=None, on_save=None, preset=None):
         super().__init__(parent)
         apply_window_icon(self)
@@ -5304,20 +5306,58 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self._quick_cat_var = tk.StringVar(value="")
         self._quick_amt_var = tk.StringVar(value="")
 
+        self._restore_window_placement()
         self._build()
         self._load()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.grab_set()
         self.transient(parent)
-        self.after_idle(self._maximize)
         self.after_idle(self._focus_initial_field)
 
-    def _maximize(self):
+    def _restore_window_placement(self):
+        default_w, default_h = _screen_fit(1100, 760, pad=40)
+        self.geometry(f"{default_w}x{default_h}")
+
+        raw = db.get_app_preference(self._GEOMETRY_PREF_KEY, "")
+        if not raw:
+            return
         try:
-            self.state("zoomed")
+            saved = json.loads(raw)
+        except Exception:
+            return
+
+        if not isinstance(saved, dict):
+            return
+
+        geom = str(saved.get("geometry") or "").strip()
+        if geom and "x" in geom and "+" in geom:
+            try:
+                self.geometry(geom)
+            except tk.TclError:
+                pass
+
+        state = str(saved.get("state") or "normal").strip().lower()
+        if state == "zoomed":
+            self.after_idle(lambda: self.state("zoomed"))
+
+    def _save_window_placement(self):
+        try:
+            state = self.state()
         except tk.TclError:
-            sw = self.winfo_screenwidth()
-            sh = self.winfo_screenheight()
-            self.geometry(f"{sw}x{sh}+0+0")
+            state = "normal"
+
+        payload = {
+            "state": "zoomed" if str(state).lower() == "zoomed" else "normal",
+            "geometry": self.geometry(),
+        }
+        try:
+            db.set_app_preference(self._GEOMETRY_PREF_KEY, json.dumps(payload))
+        except Exception:
+            pass
+
+    def destroy(self):
+        self._save_window_placement()
+        super().destroy()
 
     def _mkvar(self, key: str) -> tk.StringVar:
         v = tk.StringVar()
@@ -5381,7 +5421,7 @@ class BookkeepingEntryDialog(tk.Toplevel):
 
         ttk.Label(top, text="Payee / Description").grid(row=1, column=0, sticky="e", padx=(4, 2), pady=3)
         self._payee_entry = ttk.Entry(top, textvariable=self._mkvar("payee"), width=26)
-        self._payee_entry.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(0, 8), pady=3)
+        self._payee_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=3)
 
         ttk.Label(top, text="Memo").grid(row=2, column=0, sticky="e", padx=(4, 2), pady=3)
         self._memo_entry = ttk.Entry(top, textvariable=self._mkvar("memo"), width=34)
