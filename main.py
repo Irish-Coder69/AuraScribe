@@ -2211,6 +2211,18 @@ class SessionDialog(tk.Toplevel):
         self._insert_text_into_selected_target(text)
         self._dict_sv.set("Dictation: pasted from clipboard")
 
+    def _scan_dictation_apps_async(self):
+        """Background scan for dictation apps at startup. Caches result for UI dialogs."""
+        def _scan_thread():
+            try:
+                self._cached_dictation_apps = self._find_dictation_apps()
+            except Exception as e:
+                _append_startup_log(f"Dictation scan error: {e}")
+                self._cached_dictation_apps = [("Windows Built-in Dictation (Win+H)", "")]
+        
+        t = threading.Thread(target=_scan_thread, daemon=True)
+        t.start()
+
     @staticmethod
     def _find_dictation_apps():
         """Search for installed dictation apps on Windows. Returns list of (label, exe_path)."""
@@ -2407,14 +2419,14 @@ class SessionDialog(tk.Toplevel):
         win = tk.Toplevel(self)
         apply_window_icon(win)
         win.title("Dictation Settings")
-        win.geometry("760x620")
+        win.geometry("800x680")
         win.resizable(True, True)
         win.transient(self)
         win.grab_set()
         win.update_idletasks()
-        px = self.winfo_rootx() + max(20, (self.winfo_width() - 760) // 2)
-        py = self.winfo_rooty() + max(20, (self.winfo_height() - 620) // 2)
-        win.geometry(f"760x620+{px}+{py}")
+        px = self.winfo_rootx() + max(20, (self.winfo_width() - 800) // 2)
+        py = self.winfo_rooty() + max(20, (self.winfo_height() - 680) // 2)
+        win.geometry(f"800x680+{px}+{py}")
         win.lift()
         win.focus_force()
 
@@ -2422,19 +2434,39 @@ class SessionDialog(tk.Toplevel):
         frm.pack(fill="both", expand=True)
 
         ttk.Label(frm, text="Dictation Settings", font=FONT_LG).pack(anchor="w")
-        ttk.Label(frm, text=f"Status: {status}", foreground=MUTED).pack(anchor="w", pady=(4, 8))
+        ttk.Label(frm, text=f"Current Status: {status}", foreground=MUTED).pack(anchor="w", pady=(4, 2))
         ttk.Label(
             frm,
-            text=f"Preferred: {self._dict_pref_label}",
-            foreground=MUTED,
-        ).pack(anchor="w", pady=(0, 8))
+            text=f"Default Dictation: {self._dict_pref_label}",
+            foreground=ACCENT,
+            font=("Arial", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 10))
+
+        # ── Header for detected apps section ──────────────────────────────
+        header_frame = ttk.Frame(frm)
+        header_frame.pack(fill="x", pady=(0, 6))
+        ttk.Label(header_frame, text="Detected Dictation Software:", font=FONT_SM).pack(side="left")
+        
+        def _rescan():
+            messagebox.showinfo("Scanning", "Rescanning for dictation software...", parent=win)
+            self._cached_dictation_apps = self._find_dictation_apps()
+            detected_count = sum(1 for _, exe in self._cached_dictation_apps if exe)
+            messagebox.showinfo(
+                "Scan Complete",
+                f"Scan complete. Found {detected_count} installed dictation app(s).",
+                parent=win,
+            )
+            win.destroy()
+            self._open_dictation_settings()
+        
+        btn(header_frame, "Rescan for Software", _rescan).pack(side="right")
 
         # ── Installed dictation apps ──────────────────────────────────────
-        ttk.Label(frm, text="Detected Dictation Software:", font=FONT_SM).pack(anchor="w", pady=(0, 2))
-        app_frame = ttk.Frame(frm)
-        app_frame.pack(fill="x", pady=(0, 6))
+        app_frame = ttk.LabelFrame(frm, text="Select and Launch", padding=8)
+        app_frame.pack(fill="x", pady=(0, 10))
 
-        detected = self._find_dictation_apps()
+        # Use cached apps if available, otherwise scan now
+        detected = self._cached_dictation_apps if self._cached_dictation_apps else self._find_dictation_apps()
         if detected:
             app_labels = {}
             for label, exe in detected:
@@ -2445,7 +2477,7 @@ class SessionDialog(tk.Toplevel):
                 app_frame,
                 values=list(app_labels.keys()),
                 state="readonly",
-                width=52,
+                width=56,
             )
             app_combo.current(0)
             app_combo.pack(side="left", padx=(0, 6))
@@ -2468,11 +2500,34 @@ class SessionDialog(tk.Toplevel):
                         self._show_system_dictation_help()
                     win.destroy()
 
-            btn(app_frame, "Launch", _launch_selected).pack(side="left")
+            btn(app_frame, "Launch Selected", _launch_selected).pack(side="left")
+            
+            def _set_as_default():
+                sel = app_combo.get()
+                picked = app_labels.get(sel)
+                if not picked:
+                    return
+                mode, exe, label = picked
+                if mode == "external_app" and exe:
+                    self._save_dictation_preference("external_app", exe, label)
+                    messagebox.showinfo(
+                        "Saved",
+                        f"Default dictation set to {label}.\nLaunch from 'Start Dictation' when ready.",
+                        parent=win,
+                    )
+                else:
+                    self._save_dictation_preference("windows_builtin", "", "Windows Built-in Dictation (Win+H)")
+                    messagebox.showinfo(
+                        "Saved",
+                        "Default dictation set to Windows Built-in.\nPress Win+H or use 'Start Dictation' when ready.",
+                        parent=win,
+                    )
+            
+            btn(app_frame, "Set as Default", _set_as_default).pack(side="left", padx=4)
         else:
             ttk.Label(
                 app_frame,
-                text="No installed dictation apps detected automatically.",
+                text="No installed dictation apps detected automatically. Click 'Rescan' or 'Browse' to locate one.",
                 foreground=MUTED,
             ).pack(side="left")
 
@@ -2480,16 +2535,17 @@ class SessionDialog(tk.Toplevel):
             self._save_dictation_preference("offline_vosk", "", "Built-in Offline Dictation (Vosk)")
             messagebox.showinfo("Saved", "Default dictation method set to Built-in Offline Dictation (Vosk).", parent=win)
 
-        btn(frm, "Use Built-in Offline Dictation by Default", _use_offline_vosk_default).pack(anchor="w", pady=(0, 6))
+        # ── Action buttons ────────────────────────────────────────────────────
+        action_frame = ttk.LabelFrame(frm, text="Other Options", padding=8)
+        action_frame.pack(fill="x", pady=(0, 10))
+        
+        btn(action_frame, "Browse for Dictation App…", self._browse_and_launch_dictation).pack(side="left", padx=4)
+        btn(action_frame, "Use Offline Dictation by Default", _use_offline_vosk_default).pack(side="left", padx=4)
         btn(
-            frm,
-            "Remove Saved Dictation Program",
+            action_frame,
+            "Reset to Default",
             lambda: self._remove_saved_dictation_program(win),
-        ).pack(anchor="w", pady=(0, 6))
-
-        btn(frm, "Browse for Dictation App…", self._browse_and_launch_dictation).pack(
-            anchor="w", pady=(0, 8)
-        )
+        ).pack(side="left", padx=4)
 
         # ── Offline Vosk status ───────────────────────────────────────────
         ttk.Separator(frm, orient="horizontal").pack(fill="x", pady=4)
@@ -6897,6 +6953,10 @@ class TheraTrakApp(tk.Tk):
         self.current_user = current_user
         self._version = vm.get_version_string()
         self.title(f"TheraTrak Pro - {self._version}")
+        
+        # ── Cache detected dictation software at startup ──────────────────────
+        self._cached_dictation_apps = []
+        self._scan_dictation_apps_async()
 
         # ── Detect display and hardware environment once at startup ──────────
         global SCREEN_W, SCREEN_H, SCREEN_FIT_W, SCREEN_FIT_H
