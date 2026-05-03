@@ -256,15 +256,15 @@ def _probe_machine_type() -> dict[str, object]:
                 "\"$pc|$($ch -join ',')\""
             ),
         ]
-        result = subprocess.run(
+        probe_proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        raw = (result.stdout or "").strip()
-        if result.returncode == 0 and raw:
+        raw = (probe_proc.stdout or "").strip()
+        if probe_proc.returncode == 0 and raw:
             pc_text, _, chassis_text = raw.partition("|")
             try:
                 pc_val = int(pc_text.strip())
