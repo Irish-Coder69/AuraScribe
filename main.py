@@ -5337,27 +5337,14 @@ class ReportsTab(ttk.Frame):
         messagebox.showinfo("Exported", f"Billing exported to:\n{path}")
 
 
-# ─── Settings Tab ──────────────────────────────────────────────────────────────
+# ─── Provider / Practice Tab ───────────────────────────────────────────────────
 
-class SettingsTab(ttk.Frame):
+class ProviderPracticeTab(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         self._vars = {}
         self._build()
         self._load()
-
-    def _refresh_app_views(self, *, patients=False, sessions=False, billing=False, select_tab=None):
-        app = self.winfo_toplevel()
-        if patients and hasattr(app, "tab_patients"):
-            app.tab_patients.refresh()
-        if sessions and hasattr(app, "tab_sessions"):
-            app.tab_sessions.refresh()
-        if billing and hasattr(app, "tab_billing"):
-            app.tab_billing.refresh()
-        if hasattr(app, "_update_stats"):
-            app._update_stats()
-        if select_tab is not None and hasattr(app, "nb"):
-            app.nb.select(select_tab)
 
     def _fld(self, name, default=""):
         v = tk.StringVar(value=default)
@@ -5365,21 +5352,17 @@ class SettingsTab(ttk.Frame):
         return v
 
     def _build(self):
-        nb = ttk.Notebook(self)
-        self._nb = nb
-        nb.pack(fill="both", expand=True, padx=8, pady=8)
-
-        # ── Provider / Practice ───────────────────────────────────────────────
-        f1 = ttk.Frame(nb, padding=14)
-        nb.add(f1, text=" Provider / Practice ")
-        for c in range(4): f1.columnconfigure(c, weight=1)
+        frm = ttk.Frame(self, padding=14)
+        frm.pack(fill="both", expand=True)
+        for c in range(4):
+            frm.columnconfigure(c, weight=1)
 
         fields = [
-            ("Practice Name",         "practice_name",  0, 0),
+            ("Practice Name",          "practice_name",  0, 0),
             ("Provider Last Name",     "provider_last",  1, 0),
             ("Provider First Name",    "provider_first", 1, 2),
-            ("Provider Suffix",        "provider_suffix",2, 0),
-            ("Credentials (LCSW etc.)","credentials",    2, 2),
+            ("Provider Suffix",        "provider_suffix", 2, 0),
+            ("Credentials (LCSW etc.)", "credentials",   2, 2),
             ("NPI",                    "npi",            3, 0),
             ("Tax ID",                 "tax_id",         3, 2),
             ("Tax ID Type (EIN/SSN)",  "tax_id_type",    4, 0),
@@ -5396,23 +5379,68 @@ class SettingsTab(ttk.Frame):
             ("Default POS",            "default_pos",   10, 0),
         ]
         for lbl, key, r, c in fields:
-            ttk.Label(f1, text=lbl).grid(row=r, column=c, sticky="e", padx=4, pady=3)
-            ttk.Entry(f1, textvariable=self._fld(key), width=26).grid(
-                row=r, column=c+1, sticky="ew", padx=(0,12))
+            ttk.Label(frm, text=lbl).grid(row=r, column=c, sticky="e", padx=4, pady=3)
+            ttk.Entry(frm, textvariable=self._fld(key), width=26).grid(
+                row=r, column=c + 1, sticky="ew", padx=(0, 12)
+            )
 
         self.accept_var = tk.IntVar(value=1)
-        assign_frm = ttk.Frame(f1)
+        assign_frm = ttk.Frame(frm)
         assign_frm.grid(row=11, column=0, columnspan=4, sticky="w", padx=4, pady=4)
         ttk.Label(assign_frm, text="Assignment:").pack(side="left", padx=(0, 8))
-        ttk.Radiobutton(assign_frm, text="Accept Assignment", variable=self.accept_var, value=1).pack(side="left", padx=(0, 10))
-        ttk.Radiobutton(assign_frm, text="Do Not Accept Assignment", variable=self.accept_var, value=0).pack(side="left")
+        ttk.Radiobutton(
+            assign_frm,
+            text="Accept Assignment",
+            variable=self.accept_var,
+            value=1,
+        ).pack(side="left", padx=(0, 10))
+        ttk.Radiobutton(
+            assign_frm,
+            text="Do Not Accept Assignment",
+            variable=self.accept_var,
+            value=0,
+        ).pack(side="left")
 
-        btn(f1, "Save Provider Settings", self._save_provider, "Accent.TButton"
-            ).grid(row=12, column=0, columnspan=2, pady=10, padx=4, sticky="w")
+        btn(frm, "Save Provider Settings", self._save_provider, "Accent.TButton").grid(
+            row=12, column=0, columnspan=2, pady=10, padx=4, sticky="w"
+        )
 
-        # ── Data Import ───────────────────────────────────────────────────────
-        f2 = ttk.Frame(nb, padding=14)
-        nb.add(f2, text=" Data Import ")
+    def _load(self):
+        prov = db.get_provider()
+        for key, var in self._vars.items():
+            var.set(str(prov.get(key, "") or ""))
+        self.accept_var.set(prov.get("accept_assign", 1))
+
+    def _save_provider(self):
+        data = {k: v.get().strip() for k, v in self._vars.items()}
+        data["accept_assign"] = self.accept_var.get()
+        db.save_provider(data)
+        messagebox.showinfo("Saved", "Provider settings saved.")
+
+
+# ─── Settings Tab ──────────────────────────────────────────────────────────────
+
+class SettingsTab(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._build()
+
+    def _refresh_app_views(self, *, patients=False, sessions=False, billing=False, select_tab=None):
+        app = self.winfo_toplevel()
+        if patients and hasattr(app, "tab_patients"):
+            app.tab_patients.refresh()
+        if sessions and hasattr(app, "tab_sessions"):
+            app.tab_sessions.refresh()
+        if billing and hasattr(app, "tab_billing"):
+            app.tab_billing.refresh()
+        if hasattr(app, "_update_stats"):
+            app._update_stats()
+        if select_tab is not None and hasattr(app, "nb"):
+            app.nb.select(select_tab)
+
+    def _build(self):
+        f2 = ttk.Frame(self, padding=14)
+        f2.pack(fill="both", expand=True)
 
         ttk.Label(f2, text="Import Data from Any Medical Software",
                   font=FONT_LG).pack(anchor="w", pady=(0, 6))
@@ -5465,22 +5493,6 @@ class SettingsTab(ttk.Frame):
         self._import_log = tk.Text(f2, height=10, font=FONT_MONO, state="disabled",
                                    relief="solid", borderwidth=1, background="#fafafa")
         self._import_log.pack(fill="both", expand=True)
-
-    def show_provider_profile(self):
-        if hasattr(self, "_nb"):
-            self._nb.select(0)
-
-    def _load(self):
-        prov = db.get_provider()
-        for key, var in self._vars.items():
-            var.set(str(prov.get(key, "") or ""))
-        self.accept_var.set(prov.get("accept_assign", 1))
-
-    def _save_provider(self):
-        data = {k: v.get().strip() for k, v in self._vars.items()}
-        data["accept_assign"] = self.accept_var.get()
-        db.save_provider(data)
-        messagebox.showinfo("Saved", "Provider settings saved.")
 
     def _log(self, text):
         self._import_log.config(state="normal")
@@ -7137,6 +7149,7 @@ class TheraTrakApp(tk.Tk):
         self.tab_cms = CMS1500Tab(self.nb)
         self.tab_bookkeeping = BookkeepingTab(self.nb)
         self.tab_reports = ReportsTab(self.nb)
+        self.tab_provider = ProviderPracticeTab(self.nb)
         self.tab_settings = SettingsTab(self.nb)
 
         self.nb.add(self.tab_patients, text="  Patients  ")
@@ -7146,7 +7159,8 @@ class TheraTrakApp(tk.Tk):
         self.nb.add(self.tab_cms, text="  CMS-1500  ")
         self.nb.add(self.tab_bookkeeping, text="  Bookkeeping  ")
         self.nb.add(self.tab_reports, text="  Reports  ")
-        self.nb.add(self.tab_settings, text="  Settings / Import  ")
+        self.nb.add(self.tab_provider, text="  Provider / Practice  ")
+        self.nb.add(self.tab_settings, text="  Data Import  ")
 
     def _build_statusbar(self):
         sb = tk.Frame(self, bg="#e2e8f0", height=24)
@@ -7190,13 +7204,15 @@ class TheraTrakApp(tk.Tk):
         menubar.add_cascade(label="File", menu=file_menu)
 
         nav_menu = tk.Menu(menubar, tearoff=0)
-        nav_menu.add_command(label="Patients", command=lambda: self.nb.select(0))
-        nav_menu.add_command(label="Session Notes", command=lambda: self.nb.select(1))
-        nav_menu.add_command(label="Billing", command=lambda: self.nb.select(2))
-        nav_menu.add_command(label="CMS-1500", command=lambda: self.nb.select(3))
-        nav_menu.add_command(label="Bookkeeping", command=lambda: self.nb.select(4))
-        nav_menu.add_command(label="Reports", command=lambda: self.nb.select(5))
-        nav_menu.add_command(label="Settings/Import", command=lambda: self.nb.select(6))
+        nav_menu.add_command(label="Patients", command=lambda: self.nb.select(self.tab_patients))
+        nav_menu.add_command(label="Session Notes", command=lambda: self.nb.select(self.tab_sessions))
+        nav_menu.add_command(label="Appointments", command=lambda: self.nb.select(self.tab_appointments))
+        nav_menu.add_command(label="Billing", command=lambda: self.nb.select(self.tab_billing))
+        nav_menu.add_command(label="CMS-1500", command=lambda: self.nb.select(self.tab_cms))
+        nav_menu.add_command(label="Bookkeeping", command=lambda: self.nb.select(self.tab_bookkeeping))
+        nav_menu.add_command(label="Reports", command=lambda: self.nb.select(self.tab_reports))
+        nav_menu.add_command(label="Provider / Practice", command=lambda: self.nb.select(self.tab_provider))
+        nav_menu.add_command(label="Data Import", command=lambda: self.nb.select(self.tab_settings))
         nav_menu.add_command(label="Provider Profile", command=self._open_provider_profile)
         menubar.add_cascade(label="Navigate", menu=nav_menu)
 
@@ -7231,9 +7247,8 @@ class TheraTrakApp(tk.Tk):
         UserDirectoryDialog(self)
 
     def _open_provider_profile(self):
-        self.nb.select(6)
-        if hasattr(self, "tab_settings"):
-            self.tab_settings.show_provider_profile()
+        if hasattr(self, "tab_provider"):
+            self.nb.select(self.tab_provider)
 
     def _file_import_patients_any(self):
         if hasattr(self, "tab_settings"):
