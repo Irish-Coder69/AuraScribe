@@ -8,6 +8,7 @@ Python 3.10+  ·  Tkinter + ttk  ·  SQLite backend
 import json
 import io
 import os
+import platform
 import queue
 import re
 import hmac
