@@ -114,6 +114,7 @@ LICENSE_KEY_PREFIX = "THP1"
 LICENSE_PREF_KEY = "license_key"
 LICENSE_NAME_PREF_KEY = "license_registered_name"
 LICENSE_EMAIL_PREF_KEY = "license_registered_email"
+UPDATE_ANNOUNCEMENT_SEEN_PREF_KEY = "ui.update_announcement_seen_version"
 
 # Screen dimensions populated once at startup by TheraTrakApp.__init__.
 # Every dialog reads these instead of calling winfo_screen* individually.
@@ -4485,7 +4486,12 @@ class CMS1500Tab(ttk.Frame):
         picker = tk.Toplevel(self)
         apply_window_icon(picker)
         picker.title("Select Patient for CMS-1500")
-        picker.geometry("520x360")
+        target_w = 920 if MACHINE_TYPE == "laptop" else 760
+        target_h = 640 if MACHINE_TYPE == "laptop" else 560
+        _w, _h = _screen_fit(target_w, target_h, pad=24)
+        picker.geometry(f"{_w}x{_h}")
+        picker.minsize(680, 460)
+        picker.resizable(True, True)
         picker.grab_set()
 
         ttk.Label(picker, text="Select Patient:").pack(anchor="w", padx=10, pady=6)
@@ -7314,6 +7320,26 @@ class TheraTrakApp(tk.Tk):
         self.current_user = user
         self._update_stats()
 
+    def show_post_update_announcement_if_needed(self):
+        current_version = (self._version or vm.get_version_string() or "").strip()
+        if not current_version:
+            return
+        seen_version = (db.get_app_preference(UPDATE_ANNOUNCEMENT_SEEN_PREF_KEY, "") or "").strip()
+        if seen_version == current_version:
+            return
+        db.set_app_preference(UPDATE_ANNOUNCEMENT_SEEN_PREF_KEY, current_version)
+        messagebox.showinfo(
+            "TheraTrak Pro Updated",
+            (
+                f"Welcome back! You're now running {current_version}.\n\n"
+                "What's new in this update:\n"
+                "- CMS-1500 preview is larger on laptop displays\n"
+                "- CMS-1500 mouse-wheel scrolling is smoother\n"
+                "- Ctrl + Mouse Wheel now zooms the CMS-1500 form preview"
+            ),
+            parent=self,
+        )
+
     def _open_user_directory(self):
         UserDirectoryDialog(self)
 
@@ -7360,6 +7386,7 @@ class TheraTrakApp(tk.Tk):
         if login.user:
             self.set_logged_in_user(login.user)
             self.deiconify()
+            self.show_post_update_announcement_if_needed()
         else:
             self.destroy()
 
@@ -8027,6 +8054,7 @@ if __name__ == "__main__":
             if login.winfo_exists():
                 login.destroy()
             app.deiconify()
+            app.show_post_update_announcement_if_needed()
             app.update_idletasks()
             try:
                 app.state("zoomed")
