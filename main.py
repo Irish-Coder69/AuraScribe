@@ -1196,52 +1196,47 @@ def apply_window_icon(window):
             window.iconbitmap(default=str(ICON_FILE))
     except tk.TclError:
         pass
-    try:
-        window.attributes("-toolwindow", False)
-    except tk.TclError:
-        pass
-    # On Windows, toggling -toolwindow (and later calling state('zoomed'), transient(),
-    # or grab_set()) can strip WS_MINIMIZEBOX / WS_MAXIMIZEBOX from the underlying
-    # Win32 style, making the buttons visible but unclickable.  We restore them via
-    # the Win32 API at multiple strategic points to defeat any style-stripping calls.
     if sys.platform == "win32":
-        def _restore_chrome():
+        def _restore_and_schedule():
+            """Restore minimize/maximize styles and reschedule to keep them intact."""
             try:
                 import ctypes
                 user32         = ctypes.windll.user32
-                GA_ROOT        = 2           # GetAncestor: walk parent chain to root
                 GWL_STYLE      = -16
                 GWL_EXSTYLE    = -20
-                WS_CAPTION     = 0x00C00000  # title bar (required for control box)
-                WS_SYSMENU     = 0x00080000  # system menu / close button
                 WS_MINIMIZEBOX = 0x00020000
                 WS_MAXIMIZEBOX = 0x00010000
                 WS_EX_TOOLWINDOW = 0x00000080
-                # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
                 SWP_FLAGS      = 0x0037
                 hwnd = window.winfo_id()
-                root = user32.GetAncestor(hwnd, GA_ROOT)
-                if root:
-                    hwnd = root
                 if not hwnd:
                     return
-                # Restore all needed base styles in one SetWindowLong call.
+                # Get root hwnd from child (winfo_id returns TkChild window)
+                root = user32.GetAncestor(hwnd, 2)
+                if root:
+                    hwnd = root
+                # Get current styles and set minimize/maximize unconditionally.
+                # Use bitwise OR to merge, never clear existing flags to avoid conflicts.
                 cur = user32.GetWindowLongW(hwnd, GWL_STYLE)
-                user32.SetWindowLongW(hwnd, GWL_STYLE,
-                    cur | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
-                # Clear the toolwindow extended style if it snuck back in.
+                new_style = cur | 0x00C00000 | 0x00080000 | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+                if new_style != cur:
+                    user32.SetWindowLongW(hwnd, GWL_STYLE, new_style)
+                # Clear WS_EX_TOOLWINDOW from extended styles - it disables minimize.
                 cur_ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur_ex & ~WS_EX_TOOLWINDOW)
-                # Force the non-client area to redraw with the updated styles.
+                new_ex = cur_ex & ~WS_EX_TOOLWINDOW
+                if new_ex != cur_ex:
+                    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex)
+                # Force frame redraw to apply the new styles immediately.
                 user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
             except Exception:
                 pass
-        # Restore chrome at multiple intervals: 50ms (catches state() changes), 200ms
-        # (catches transient/grab_set), and 400ms (catches any remaining async changes).
-        # This ensures the bits survive all tkinter initialization operations.
-        for delay_ms in [50, 200, 400]:
-            window.after(delay_ms, _restore_chrome)
 
+        # Ensure the window is created before we try to get winfo_id().
+        window.update_idletasks()
+        # Apply immediately once window exists, then repeatedly at increasing intervals
+        # to survive all tkinter state changes (state(), transient(), grab_set(), etc).
+        for delay_ms in [10, 50, 150, 300, 600]:
+            window.after(delay_ms, _restore_and_schedule)
 
 class UserDirectoryDialog(tk.Toplevel):
     def __init__(self, parent):
