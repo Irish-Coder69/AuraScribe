@@ -1309,23 +1309,23 @@ class UserDirectoryDialog(tk.Toplevel):
             return v
 
         # Full-width entry (spans all 6 data columns)
-        def fe(lbl, name, r):
+            # Avoid hard modal grab so Windows minimize works reliably.
             ttk.Label(form, text=lbl).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(name)).grid(row=r, column=1, columnspan=5, sticky="ew", padx=(0, 8), pady=3)
 
         # Two-field row  (label | entry | label | entry)
         def fe2(lbl1, n1, lbl2, n2, r):
-            ttk.Label(form, text=lbl1).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
+            # Avoid hard modal grab so Windows minimize works reliably.
             ttk.Entry(form, textvariable=fv(n1)).grid(row=r, column=1, sticky="ew", padx=(0, 4), pady=3)
             ttk.Label(form, text=lbl2).grid(row=r, column=2, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n2)).grid(row=r, column=3, sticky="ew", padx=(0, 8), pady=3)
 
         # Three-field row (label | entry | label | entry | label | entry)
-        def fe3(lbl1, n1, lbl2, n2, lbl3, n3, r):
+            # Avoid hard modal grab so Windows minimize works reliably.
             ttk.Label(form, text=lbl1).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n1)).grid(row=r, column=1, sticky="ew", padx=(0, 4), pady=3)
             ttk.Label(form, text=lbl2).grid(row=r, column=2, sticky="e", padx=(4, 2), pady=3)
-            ttk.Entry(form, textvariable=fv(n2)).grid(row=r, column=3, sticky="ew", padx=(0, 4), pady=3)
+            # Avoid hard modal grab so Windows minimize works reliably.
             ttk.Label(form, text=lbl3).grid(row=r, column=4, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n3)).grid(row=r, column=5, sticky="ew", padx=(0, 8), pady=3)
 
@@ -1875,7 +1875,7 @@ class PatientDialog(tk.Toplevel):
         self._build()
         if pid:
             self._load()
-        self.grab_set()
+        # Avoid hard modal grab so Windows minimize works reliably.
 
     def _fld(self, name):
         v = tk.StringVar()
@@ -2146,7 +2146,7 @@ class SessionDialog(tk.Toplevel):
             import datetime as _dt
             self._vars["session_date"].set(_dt.date.today().strftime("%m/%d/%Y"))
         self.protocol("WM_DELETE_WINDOW", self._close_dialog)
-        self.grab_set()
+        # Avoid hard modal grab so Windows minimize works reliably.
 
     def _fld(self, name, default=""):
         v = tk.StringVar(value=default)
@@ -3053,7 +3053,7 @@ class BillingDialog(tk.Toplevel):
             self._vars["record_date"].set(date.today().strftime("%m/%d/%Y"))
             self._select_patient_by_id(pid)
             self._refresh_session_choices(preferred_sid=self.seed_session_id, auto_prefill=True)
-        self.grab_set()
+        # Avoid hard modal grab so Windows minimize works reliably.
 
     def _fld(self, name, default=""):
         v = tk.StringVar(value=default)
@@ -5802,7 +5802,7 @@ class BookkeepingEntryDialog(tk.Toplevel):
         self._restore_window_placement()
         self.bind("<Configure>", self._on_window_configure, add="+")
         self.protocol("WM_DELETE_WINDOW", self._close_dialog)
-        self.grab_set()
+        # Avoid hard modal grab so Windows minimize works reliably.
         self.after_idle(self._focus_initial_field)
 
     def _close_dialog(self):
@@ -6196,7 +6196,7 @@ class AppointmentDialog(tk.Toplevel):
         apply_window_icon(self)
         self.title("New Appointment" if appt_id is None else "Edit Appointment")
         self.resizable(True, True)
-        self.grab_set()
+        # Avoid hard modal grab so Windows minimize works reliably.
         self._appt_id = appt_id
         self._on_save = on_save
         self._pts = db.get_all_patients("Active")
