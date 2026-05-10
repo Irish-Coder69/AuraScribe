@@ -7055,6 +7055,7 @@ class BookkeepingTab(ttk.Frame):
 class VersionManagerDialog(tk.Toplevel):
     def __init__(self, parent, on_change=None):
         super().__init__(parent)
+        apply_window_icon(self)
         self.on_change = on_change
         self.title("Version Manager")
         _w, _h = _screen_fit(420, 280)
