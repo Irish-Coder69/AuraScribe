@@ -1200,28 +1200,54 @@ def apply_window_icon(window):
         window.attributes("-toolwindow", False)
     except tk.TclError:
         pass
-    # On Windows, toggling -toolwindow can strip WS_MINIMIZEBOX / WS_MAXIMIZEBOX
-    # from the underlying Win32 style, making the buttons visible but unclickable.
-    # Explicitly restore them via the Win32 API after the window is created.
+    # On Windows, toggling -toolwindow (and later calling transient()) can strip
+    # WS_MINIMIZEBOX / WS_MAXIMIZEBOX from the underlying Win32 style, making the
+    # buttons visible but unclickable.  We restore them via the Win32 API.
+    #
+    # IMPORTANT: after(0) is an idle callback that can be processed by Tk's own
+    # update_idletasks() calls inside wm_transient/grab_set, which means it could
+    # fire BEFORE those calls finish and before they strip the style bits.
+    # Using after(200) schedules a proper timer callback that update_idletasks()
+    # never processes, guaranteeing it fires after all __init__ setup is complete.
     if sys.platform == "win32":
         def _restore_chrome():
             try:
                 import ctypes
-                GWL_STYLE    = -16
-                WS_MINIMIZE  = 0x00020000
-                WS_MAXIMIZE  = 0x00010000
+                user32         = ctypes.windll.user32
+                GA_ROOT        = 2           # GetAncestor: walk parent chain to root
+                GWL_STYLE      = -16
+                GWL_EXSTYLE    = -20
+                WS_CAPTION     = 0x00C00000  # title bar (required for control box)
+                WS_SYSMENU     = 0x00080000  # system menu / close button
+                WS_MINIMIZEBOX = 0x00020000
+                WS_MAXIMIZEBOX = 0x00010000
+                WS_EX_TOOLWINDOW = 0x00000080
                 # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
-                SWP_FLAGS    = 0x0037
+                SWP_FLAGS      = 0x0037
+                # winfo_id() returns the inner TkChild HWND (a WS_CHILD window).
+                # GetAncestor(GA_ROOT) walks up to the real top-level Win32 wrapper
+                # reliably, regardless of any owner/transient relationship.
                 hwnd = window.winfo_id()
-                parent = ctypes.windll.user32.GetParent(hwnd)
-                if parent:
-                    hwnd = parent
-                cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, cur | WS_MINIMIZE | WS_MAXIMIZE)
-                ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
+                root = user32.GetAncestor(hwnd, GA_ROOT)
+                if root:
+                    hwnd = root
+                if not hwnd:
+                    return
+                # Restore all needed base styles in one SetWindowLong call.
+                cur = user32.GetWindowLongW(hwnd, GWL_STYLE)
+                user32.SetWindowLongW(hwnd, GWL_STYLE,
+                    cur | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
+                # Clear the toolwindow extended style if it snuck back in.
+                cur_ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur_ex & ~WS_EX_TOOLWINDOW)
+                # Force the non-client area to redraw with the updated styles.
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
             except Exception:
                 pass
-        window.after(0, _restore_chrome)
+        # 200 ms is a timed callback — never fired by update_idletasks() — so it
+        # is guaranteed to run after the full __init__ (including transient/grab_set)
+        # has completed and the window is visible on screen.
+        window.after(200, _restore_chrome)
 
 
 class UserDirectoryDialog(tk.Toplevel):
