@@ -1200,15 +1200,10 @@ def apply_window_icon(window):
         window.attributes("-toolwindow", False)
     except tk.TclError:
         pass
-    # On Windows, toggling -toolwindow (and later calling transient()) can strip
-    # WS_MINIMIZEBOX / WS_MAXIMIZEBOX from the underlying Win32 style, making the
-    # buttons visible but unclickable.  We restore them via the Win32 API.
-    #
-    # IMPORTANT: after(0) is an idle callback that can be processed by Tk's own
-    # update_idletasks() calls inside wm_transient/grab_set, which means it could
-    # fire BEFORE those calls finish and before they strip the style bits.
-    # Using after(200) schedules a proper timer callback that update_idletasks()
-    # never processes, guaranteeing it fires after all __init__ setup is complete.
+    # On Windows, toggling -toolwindow (and later calling state('zoomed'), transient(),
+    # or grab_set()) can strip WS_MINIMIZEBOX / WS_MAXIMIZEBOX from the underlying
+    # Win32 style, making the buttons visible but unclickable.  We restore them via
+    # the Win32 API at multiple strategic points to defeat any style-stripping calls.
     if sys.platform == "win32":
         def _restore_chrome():
             try:
@@ -1224,9 +1219,6 @@ def apply_window_icon(window):
                 WS_EX_TOOLWINDOW = 0x00000080
                 # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
                 SWP_FLAGS      = 0x0037
-                # winfo_id() returns the inner TkChild HWND (a WS_CHILD window).
-                # GetAncestor(GA_ROOT) walks up to the real top-level Win32 wrapper
-                # reliably, regardless of any owner/transient relationship.
                 hwnd = window.winfo_id()
                 root = user32.GetAncestor(hwnd, GA_ROOT)
                 if root:
@@ -1244,10 +1236,11 @@ def apply_window_icon(window):
                 user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
             except Exception:
                 pass
-        # 200 ms is a timed callback — never fired by update_idletasks() — so it
-        # is guaranteed to run after the full __init__ (including transient/grab_set)
-        # has completed and the window is visible on screen.
-        window.after(200, _restore_chrome)
+        # Restore chrome at multiple intervals: 50ms (catches state() changes), 200ms
+        # (catches transient/grab_set), and 400ms (catches any remaining async changes).
+        # This ensures the bits survive all tkinter initialization operations.
+        for delay_ms in [50, 200, 400]:
+            window.after(delay_ms, _restore_chrome)
 
 
 class UserDirectoryDialog(tk.Toplevel):
