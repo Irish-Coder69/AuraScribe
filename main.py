@@ -99,8 +99,8 @@ STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN",
           "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
           "VA","WA","WV","WI","WY","DC"]
 
-GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Irish-Coder69/TheraTrak-Pro/releases/latest"
-GITHUB_RELEASES_PAGE = "https://github.com/Irish-Coder69/TheraTrak-Pro/releases/latest"
+GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Irish-Coder69/AuraScribe/releases/latest"
+GITHUB_RELEASES_PAGE = "https://github.com/Irish-Coder69/AuraScribe/releases/latest"
 UPDATE_TEMP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Temp" / "AuraScribeUpdates"
 STARTUP_LOG_FILE = APP_ROOT / "startup.log"
 CMS_TEMPLATE_FILE = APP_ROOT / "CMS1500_template.pdf"
@@ -7695,7 +7695,7 @@ class TheraTrakApp(tk.Tk):
                       foreground=MUTED).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
             def _open_purchase():
-                webbrowser.open("https://github.com/Irish-Coder69/TheraTrak-Pro/releases/latest")
+                webbrowser.open("https://github.com/Irish-Coder69/AuraScribe/releases/latest")
 
             ttk.Button(price_frm, text="Purchase License \u2192", command=_open_purchase).grid(
                 row=3, column=0, columnspan=2, sticky="w", pady=(8, 0)
