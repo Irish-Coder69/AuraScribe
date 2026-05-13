@@ -1309,23 +1309,23 @@ class UserDirectoryDialog(tk.Toplevel):
             return v
 
         # Full-width entry (spans all 6 data columns)
-            # Avoid hard modal grab so Windows minimize works reliably.
+        def fe(lbl, name, r):
             ttk.Label(form, text=lbl).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(name)).grid(row=r, column=1, columnspan=5, sticky="ew", padx=(0, 8), pady=3)
 
         # Two-field row  (label | entry | label | entry)
         def fe2(lbl1, n1, lbl2, n2, r):
-            # Avoid hard modal grab so Windows minimize works reliably.
+            ttk.Label(form, text=lbl1).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n1)).grid(row=r, column=1, sticky="ew", padx=(0, 4), pady=3)
             ttk.Label(form, text=lbl2).grid(row=r, column=2, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n2)).grid(row=r, column=3, sticky="ew", padx=(0, 8), pady=3)
 
         # Three-field row (label | entry | label | entry | label | entry)
-            # Avoid hard modal grab so Windows minimize works reliably.
+        def fe3(lbl1, n1, lbl2, n2, lbl3, n3, r):
             ttk.Label(form, text=lbl1).grid(row=r, column=0, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n1)).grid(row=r, column=1, sticky="ew", padx=(0, 4), pady=3)
             ttk.Label(form, text=lbl2).grid(row=r, column=2, sticky="e", padx=(4, 2), pady=3)
-            # Avoid hard modal grab so Windows minimize works reliably.
+            ttk.Entry(form, textvariable=fv(n2)).grid(row=r, column=3, sticky="ew", padx=(0, 4), pady=3)
             ttk.Label(form, text=lbl3).grid(row=r, column=4, sticky="e", padx=(4, 2), pady=3)
             ttk.Entry(form, textvariable=fv(n3)).grid(row=r, column=5, sticky="ew", padx=(0, 8), pady=3)
 
@@ -2117,6 +2117,11 @@ class SessionDialog(tk.Toplevel):
             self.geometry(f"{_w}x{_h}")
         self._vars = {}
         self._dictating = False
+        self._nt = None
+        self._goals = None
+        self._interventions = None
+        self._response = None
+        self._plan = None
         self._active_dictation_mode = None
         self._external_dictation_proc = None
         self._dictation_stop = threading.Event()
@@ -2310,7 +2315,7 @@ class SessionDialog(tk.Toplevel):
             details.append(f"Model: not found in {VOSK_MODELS_DIR}")
 
         mic_count = 0
-        if _HAS_OFFLINE_STT:
+        if _HAS_OFFLINE_STT and _sd is not None:
             try:
                 devices = _sd.query_devices()
                 mic_count = sum(1 for d in devices if float(d.get("max_input_channels", 0)) > 0)
@@ -2728,6 +2733,11 @@ class SessionDialog(tk.Toplevel):
     def _dictation_worker(self, model_dir):
         q = queue.Queue()
 
+        if _sd is None or _vosk is None:
+            self.after(0, self._dict_sv.set, "Dictation error: offline dictation packages are unavailable.")
+            self.after(0, self._on_dictation_stopped)
+            return
+
         def _audio_callback(indata, frames, time_info, status):
             if self._dictation_stop.is_set():
                 return
@@ -3001,6 +3011,9 @@ class SessionDialog(tk.Toplevel):
         if self.sid:
             data["id"] = self.sid
         sid = db.save_session(data)
+        if sid is None:
+            messagebox.showerror("Save Error", "Could not save session.", parent=self)
+            return
         if self.billing_var.get():
             try:
                 self._sync_billing_record(sid, pid, data)
@@ -3379,6 +3392,8 @@ class PatientsTab(ttk.Frame):
             return
         # Switch to Sessions tab and filter by patient
         nb = self.master
+        if not isinstance(nb, ttk.Notebook):
+            return
         for i in range(nb.index("end")):
             if "Session" in nb.tab(i, "text"):
                 nb.select(i)
@@ -3392,6 +3407,8 @@ class PatientsTab(ttk.Frame):
             messagebox.showinfo("Select", "Please select a patient first.")
             return
         nb = self.master
+        if not isinstance(nb, ttk.Notebook):
+            return
         for i in range(nb.index("end")):
             if "Billing" in nb.tab(i, "text"):
                 nb.select(i)
@@ -3625,6 +3642,8 @@ class SessionNotesTab(ttk.Frame):
         if not session_row:
             return
         nb = self.master
+        if not isinstance(nb, ttk.Notebook):
+            return
         for i in range(nb.index("end")):
             if "CMS-1500" in nb.tab(i, "text"):
                 nb.select(i)
@@ -3647,8 +3666,9 @@ class SessionNotesTab(ttk.Frame):
         def _after_save():
             self.refresh()
             app = self.winfo_toplevel()
-            if hasattr(app, "tab_billing"):
-                app.tab_billing.refresh()
+            tab_billing = getattr(app, "tab_billing", None)
+            if tab_billing is not None and hasattr(tab_billing, "refresh"):
+                tab_billing.refresh()
 
         BillingDialog(
             self,
@@ -4425,7 +4445,7 @@ class CMS1500Tab(ttk.Frame):
         btn(foot, "Cancel", win.destroy).pack(side="right", padx=4)
 
     def _render_pdf_in_canvas(self, pdf_path: Path) -> bool:
-        if not PDF_RENDER_AVAILABLE:
+        if not PDF_RENDER_AVAILABLE or fitz is None or Image is None or ImageTk is None:
             self._paper_status.config(
                 text=(
                     "In-app PDF rendering components are unavailable in this build. "

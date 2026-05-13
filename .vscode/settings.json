@@ -1,0 +1,27 @@
+{
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.reportMissingTypeStubs": "none",
+  "python.analysis.reportUnknownVariableType": "none",
+  "python.analysis.reportUnknownMemberType": "none",
+  "python.analysis.reportUnknownParameterType": "none",
+  "python.analysis.reportUnknownArgumentType": "none",
+  "python.analysis.reportUnknownLambdaType": "none",
+  "python.analysis.reportUnknownReturnType": "none",
+  "python.analysis.reportConstantRedefinition": "none",
+  "python.analysis.reportArgumentType": "none",
+  "python.analysis.reportAttributeAccessIssue": "none",
+  "python.analysis.reportOptionalMemberAccess": "none",
+  "python.analysis.exclude": [
+    "**/build/**",
+    "**/dist/**",
+    "**/release/**",
+    "**/temp/**",
+    "**/.venv/**",
+    "**/.venv311/**"
+  ],
+  "python.analysis.include": [
+    "./*.py",
+    "./installer/*.py"
+  ]
+}
