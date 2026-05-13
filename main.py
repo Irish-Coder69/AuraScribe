@@ -7970,6 +7970,15 @@ class TheraTrakApp(tk.Tk):
         )
 
     def _check_for_updates(self):
+        try:
+            self._check_for_updates_impl()
+        except Exception as ex:
+            messagebox.showerror(
+                "Update Check Failed",
+                f"An unexpected error occurred while checking for updates:\n\n{ex}"
+            )
+
+    def _check_for_updates_impl(self):
         current_ver = self._version
         current_tuple = self._parse_version_tuple(current_ver)
 
@@ -8032,8 +8041,12 @@ class TheraTrakApp(tk.Tk):
                 return
 
             # Cache release notes so the next login announcement can show exactly what changed.
-            db.set_app_preference(UPDATE_ANNOUNCEMENT_NOTES_VERSION_PREF_KEY, latest_display)
-            db.set_app_preference(UPDATE_ANNOUNCEMENT_NOTES_BODY_PREF_KEY, release_notes)
+            # Wrap in try/except so a DB error never silently kills the update flow.
+            try:
+                db.set_app_preference(UPDATE_ANNOUNCEMENT_NOTES_VERSION_PREF_KEY, latest_display)
+                db.set_app_preference(UPDATE_ANNOUNCEMENT_NOTES_BODY_PREF_KEY, release_notes)
+            except Exception:
+                pass  # Non-fatal; update can still proceed without caching notes
 
             if not installer_asset:
                 messagebox.showwarning(
@@ -8047,6 +8060,11 @@ class TheraTrakApp(tk.Tk):
             asset_url = installer_asset.get("browser_download_url")
             asset_name = installer_asset.get("name") or "AuraScribe-Installer.exe"
             if not asset_url:
+                messagebox.showwarning(
+                    "Update Available",
+                    "Could not determine the download URL for the installer.\n\n"
+                    "Opening the releases page instead."
+                )
                 webbrowser.open(release_url)
                 return
 
