@@ -7188,6 +7188,7 @@ class VersionManagerDialog(tk.Toplevel):
 class TheraTrakApp(tk.Tk):
     def __init__(self, current_user=None):
         super().__init__()
+        self.withdraw()   # keep hidden until login succeeds
         apply_window_icon(self)
         self.current_user = current_user
         self._version = vm.get_version_string()
