@@ -25,6 +25,7 @@ import io
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -118,6 +119,18 @@ class CSVImportError(Exception):
     pass
 
 
+def _call_with_sqlite_retry(func, *args, retries: int = 8, base_delay: float = 0.15):
+    """Retry transient SQLite lock errors with short backoff."""
+    for attempt in range(retries + 1):
+        try:
+            return func(*args)
+        except sqlite3.OperationalError as ex:
+            msg = str(ex).lower()
+            if "database is locked" not in msg or attempt >= retries:
+                raise
+            time.sleep(base_delay * (attempt + 1))
+
+
 def import_patients_csv(path: str) -> tuple[int, list[str]]:
     """
     Import patients from a CSV file exported from Notes 444.
@@ -188,7 +201,7 @@ def import_patients_csv(path: str) -> tuple[int, list[str]]:
             }
 
             try:
-                db.save_patient(data)
+                _call_with_sqlite_retry(db.save_patient, data)
                 imported += 1
             except sqlite3.IntegrityError as e:
                 warnings.append(f"Row {line_num}: DB error – {e}")
@@ -286,7 +299,7 @@ def import_sessions_csv(path: str) -> tuple[int, list[str]]:
             }
 
             try:
-                db.save_session(data)
+                _call_with_sqlite_retry(db.save_session, data)
                 imported += 1
             except sqlite3.IntegrityError as e:
                 warnings.append(f"Row {line_num}: DB error – {e}")
@@ -363,7 +376,7 @@ def import_billing_csv(path: str) -> tuple[int, list[str]]:
             }
 
             try:
-                db.save_billing_record(data)
+                _call_with_sqlite_retry(db.save_billing_record, data)
                 imported += 1
             except sqlite3.IntegrityError as e:
                 warnings.append(f"Row {line_num}: DB error – {e}")
@@ -435,7 +448,7 @@ def import_bookkeeping_csv(path: str) -> tuple[int, list[str]]:
                 continue
 
             try:
-                db.save_bookkeeping_entry(data)
+                _call_with_sqlite_retry(db.save_bookkeeping_entry, data)
                 imported += 1
             except sqlite3.IntegrityError as ex:
                 warnings.append(f"Row {line_num}: DB error - {ex}")
