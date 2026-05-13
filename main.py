@@ -1363,7 +1363,6 @@ class UserDirectoryDialog(tk.Toplevel):
 
         # ── Contact
         fe2("Email:", "email", "Phone:", "phone", 6)
-        fe2("Taxonomy Codes:", "license_number", "NPI #:", "npi_number", 7)
 
         ttk.Separator(form, orient="horizontal").grid(row=8, column=0, columnspan=6, sticky="ew", pady=6)
 
@@ -1427,7 +1426,7 @@ class UserDirectoryDialog(tk.Toplevel):
             return
         self._edit_uid = uid
         for key in ("username", "first_name", "middle_name", "last_name",
-            "email", "phone", "role", "license_number", "npi_number",
+            "email", "phone", "role",
                     "address", "city", "state", "zip",
                     "billing_address", "billing_city", "billing_state", "billing_zip"):
             self._vars[key].set(str(row[key] or ""))
@@ -1612,19 +1611,10 @@ class CreateAccountDialog(tk.Toplevel):
         _bz.grid(row=13, column=4, sticky="ew")
         self._billing_widgets["billing_zip"] = _bz
 
-        # ── Taxonomy / NPI ───────────────────────────────────────
-        ttk.Label(frm, text="Taxonomy Codes*").grid(row=13, column=0, sticky="e", padx=4, pady=4)
-        _e_license = ttk.Entry(frm, textvariable=self._field("license_number"), width=24)
-        _e_license.grid(row=13, column=1, sticky="ew")
-
-        ttk.Label(frm, text="NPI Number*").grid(row=14, column=0, sticky="e", padx=4, pady=4)
-        _e_npi = ttk.Entry(frm, textvariable=self._field("npi_number"), width=24)
-        _e_npi.grid(row=14, column=1, sticky="ew")
-
         # ── Tab order: left column top→bottom, then right column ──
         self._set_tab_order([
             _e_first, _e_middle, _e_last, _e_phone, _e_email,
-            _e_address, _e_city, _cb_state, _e_zip, _e_license, _e_npi,
+            _e_address, _e_city, _cb_state, _e_zip,
             _e_username, _e_password, _e_confirm, _cb_role,
             self._billing_widgets["billing_address"],
             self._billing_widgets["billing_city"],
@@ -1634,10 +1624,10 @@ class CreateAccountDialog(tk.Toplevel):
 
         # ── Footer ────────────────────────────────────────────────
         msg = "Password must be at least 8 characters. Required fields are marked with *"
-        ttk.Label(frm, text=msg, foreground=MUTED).grid(row=15, column=0, columnspan=5, sticky="w", pady=(6, 2))
+        ttk.Label(frm, text=msg, foreground=MUTED).grid(row=14, column=0, columnspan=5, sticky="w", pady=(6, 2))
 
         bottom = ttk.Frame(frm)
-        bottom.grid(row=16, column=0, columnspan=5, sticky="ew", pady=(10, 0))
+        bottom.grid(row=15, column=0, columnspan=5, sticky="ew", pady=(10, 0))
         btn(bottom, "Create Account", self._create, "Accent.TButton").pack(side="left", padx=4)
         btn(bottom, "Cancel", self.destroy).pack(side="left")
 
@@ -5619,6 +5609,8 @@ class SettingsTab(ttk.Frame):
             self._download_sessions_template, "TButton").grid(row=0, column=1, padx=4, pady=4)
         btn(tpl_frm, "⬇  Billing Template",
             self._download_billing_template,  "TButton").grid(row=0, column=2, padx=4, pady=4)
+        btn(tpl_frm, "⬇  Bookkeeping Template",
+            self._download_bookkeeping_template,  "TButton").grid(row=0, column=3, padx=4, pady=4)
 
         ttk.Separator(f2).pack(fill="x", pady=10)
 
@@ -5746,6 +5738,19 @@ class SettingsTab(ttk.Frame):
         migration.write_billing_template(path)
         self._log(f"Billing template saved: {path}")
         messagebox.showinfo("Template Saved", f"Billing CSV template saved to:\n{path}")
+
+    def _download_bookkeeping_template(self):
+        path = filedialog.asksaveasfilename(
+            title="Save Bookkeeping CSV Template",
+            initialfile="bookkeeping_template.csv",
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All", "*.*")])
+        if not path:
+            return
+        import migration
+        migration.write_bookkeeping_template(path)
+        self._log(f"Bookkeeping template saved: {path}")
+        messagebox.showinfo("Template Saved", f"Bookkeeping CSV template saved to:\n{path}")
 
 
 # ─── Bookkeeping ───────────────────────────────────────────────────────────────
@@ -6560,6 +6565,7 @@ class BookkeepingTab(ttk.Frame):
 
         btn(row2, "Monthly Summary", self._monthly_summary).pack(side="left", padx=(4, 4))
         btn(row2, "Annual Summary", self._annual_summary).pack(side="left", padx=(4, 4))
+        btn(row2, "Import (Any File)", self._import_any_file, "Accent.TButton").pack(side="left", padx=(4, 4))
         btn(row2, "Export CSV", self._export_csv).pack(side="left", padx=(4, 4))
         ttk.Separator(row2, orient="vertical").pack(side="left", fill="y", padx=8)
 
@@ -7066,6 +7072,22 @@ class BookkeepingTab(ttk.Frame):
                     [f"{float(r[k] or 0):.2f}" for k, _ in _BK_EXP_COLS]
                 )
         messagebox.showinfo("Exported", f"Saved to:`n{path}", parent=self)
+
+    def _import_any_file(self):
+        path = filedialog.askopenfilename(
+            title="Import Bookkeeping File",
+            filetypes=[("All Files", "*.*"), ("CSV Files", "*.csv"), ("Text Files", "*.txt")],
+        )
+        if not path:
+            return
+        try:
+            import migration
+            count, warns = migration.import_bookkeeping_csv(path)
+        except Exception as ex:
+            messagebox.showerror("Import Failed", f"Could not import bookkeeping entries from:\n{path}\n\nError: {ex}", parent=self)
+            return
+        self.refresh()
+        messagebox.showinfo("Import Complete", f"Imported {count} bookkeeping entries.\n{len(warns)} warnings.", parent=self)
 class VersionManagerDialog(tk.Toplevel):
     def __init__(self, parent, on_change=None):
         super().__init__(parent)
@@ -7327,6 +7349,7 @@ class TheraTrakApp(tk.Tk):
         import_menu.add_command(label="Import Patients (Any File Type)", command=self._file_import_patients_any)
         import_menu.add_command(label="Import Sessions (Any File Type)", command=self._file_import_sessions_any)
         import_menu.add_command(label="Import Billing (Any File Type)", command=self._file_import_billing_any)
+        import_menu.add_command(label="Import Bookkeeping (Any File Type)", command=self._file_import_bookkeeping_any)
         file_menu.add_cascade(label="Import", menu=import_menu)
 
         export_menu = tk.Menu(file_menu, tearoff=0)
@@ -7442,6 +7465,10 @@ class TheraTrakApp(tk.Tk):
     def _file_import_billing_any(self):
         if hasattr(self, "tab_settings"):
             self.tab_settings._import_billing_csv(any_filetype=True)
+
+    def _file_import_bookkeeping_any(self):
+        if hasattr(self, "tab_bookkeeping"):
+            self.tab_bookkeeping._import_any_file()
 
     def _file_export_patients_csv(self):
         if hasattr(self, "tab_reports"):

@@ -371,6 +371,78 @@ def import_billing_csv(path: str) -> tuple[int, list[str]]:
     return imported, warnings
 
 
+def import_bookkeeping_csv(path: str) -> tuple[int, list[str]]:
+    """
+    Import bookkeeping ledger entries from a CSV-like file.
+    The file extension is ignored; importer attempts to parse text as CSV.
+    """
+    imported = 0
+    warnings = []
+
+    def _money(s: str) -> float:
+        try:
+            return float((s or "").replace("$", "").replace(",", "").strip()) if s else 0.0
+        except ValueError:
+            return 0.0
+
+    with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+        reader = csv.DictReader(f)
+        headers = {h.strip().lower(): h for h in (reader.fieldnames or [])}
+
+        if not headers:
+            return 0, ["No header row detected. Ensure the file is CSV-formatted text."]
+
+        def col(row, *candidates):
+            for c in candidates:
+                c_low = c.lower()
+                for h in headers:
+                    if c_low in h:
+                        return (row.get(headers[h], "") or "").strip()
+            return ""
+
+        for line_num, row in enumerate(reader, start=2):
+            entry_date = _parse_date(col(row, "entry date", "date", "record date", "transaction date"))
+            if not entry_date:
+                warnings.append(f"Row {line_num}: missing/invalid date - skipped")
+                continue
+
+            data = {
+                "entry_date": entry_date,
+                "check_number": col(row, "check", "check #", "check number", "ck#"),
+                "payee": col(row, "payee", "description", "vendor", "name"),
+                "memo": col(row, "memo", "notes", "note", "comment"),
+                "is_tax_deductible": 1 if col(row, "tax deductible", "tax", "deductible").lower() in ("yes", "y", "true", "1", "x") else 0,
+                "inc_client": _money(col(row, "client fees", "inc_client", "income client", "client")),
+                "inc_insurance": _money(col(row, "ins. pay", "insurance", "inc_insurance", "insurance pay")),
+                "inc_other": _money(col(row, "other inc", "inc_other", "other income")),
+                "exp_rent": _money(col(row, "rent", "exp_rent")),
+                "exp_utilities": _money(col(row, "utilities", "exp_utilities")),
+                "exp_office": _money(col(row, "office", "office sup", "exp_office")),
+                "exp_insurance": _money(col(row, "ins. exp", "expense insurance", "exp_insurance")),
+                "exp_phone": _money(col(row, "phone", "exp_phone")),
+                "exp_professional": _money(col(row, "professional", "prof. fees", "exp_professional")),
+                "exp_advertising": _money(col(row, "advertising", "exp_advertising")),
+                "exp_misc": _money(col(row, "misc", "miscellaneous", "exp_misc")),
+            }
+
+            has_amount = any(float(data[k] or 0) != 0.0 for k in (
+                "inc_client", "inc_insurance", "inc_other",
+                "exp_rent", "exp_utilities", "exp_office", "exp_insurance",
+                "exp_phone", "exp_professional", "exp_advertising", "exp_misc",
+            ))
+            if not has_amount and not data["payee"] and not data["memo"]:
+                warnings.append(f"Row {line_num}: empty row - skipped")
+                continue
+
+            try:
+                db.save_bookkeeping_entry(data)
+                imported += 1
+            except sqlite3.IntegrityError as ex:
+                warnings.append(f"Row {line_num}: DB error - {ex}")
+
+    return imported, warnings
+
+
 # ─── Raw binary extraction (best-effort) ──────────────────────────────────────
 
 def extract_raw_patients(ptinfo_path: str) -> tuple[int, list[str]]:
@@ -528,6 +600,26 @@ def write_billing_template(path: str) -> None:
         "120.00",
         "0.00",
         "",
+    ]
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerow(example)
+
+
+def write_bookkeeping_template(path: str) -> None:
+    """Write a blank bookkeeping CSV template with supported column headers."""
+    headers = [
+        "Entry Date", "Check Number", "Payee", "Memo", "Tax Deductible",
+        "Client Fees", "Ins. Pay.", "Other Inc.",
+        "Rent", "Utilities", "Office Sup.", "Ins. Exp.", "Phone",
+        "Prof. Fees", "Advertising", "Misc",
+    ]
+    example = [
+        "04/05/2026", "", "Office Supplies Co.", "Printer paper", "Yes",
+        "0.00", "0.00", "0.00",
+        "0.00", "0.00", "45.99", "0.00", "0.00",
+        "0.00", "0.00", "0.00",
     ]
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)

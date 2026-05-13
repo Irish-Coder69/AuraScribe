@@ -303,6 +303,13 @@ def _migrate_billing_records_table():
 def _migrate_users_table():
     """Add any missing columns to an existing users table (forward migration)."""
     new_columns = [
+        ("email",            "TEXT DEFAULT ''"),
+        ("phone",            "TEXT DEFAULT ''"),
+        ("role",             "TEXT DEFAULT 'User'"),
+        ("address",          "TEXT DEFAULT ''"),
+        ("city",             "TEXT DEFAULT ''"),
+        ("state",            "TEXT DEFAULT ''"),
+        ("zip",              "TEXT DEFAULT ''"),
         ("middle_name",      "TEXT DEFAULT ''"),
         ("suffix",           "TEXT DEFAULT ''"),
         ("license_number",   "TEXT DEFAULT ''"),
@@ -311,6 +318,9 @@ def _migrate_users_table():
         ("billing_city",     "TEXT DEFAULT ''"),
         ("billing_state",    "TEXT DEFAULT ''"),
         ("billing_zip",      "TEXT DEFAULT ''"),
+        ("is_active",        "INTEGER DEFAULT 1"),
+        ("created_at",       "TEXT DEFAULT (datetime('now'))"),
+        ("last_login",       "TEXT DEFAULT ''"),
     ]
     conn = get_connection()
     cur = conn.cursor()
@@ -998,10 +1008,31 @@ def verify_user_credentials(username: str, password: str):
 
 def get_all_users():
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT id, username, first_name, middle_name, last_name, email, phone, role, address, city, state, zip, license_number, npi_number, billing_address, billing_city, billing_state, billing_zip, is_active, created_at, last_login FROM users ORDER BY username"
-    ).fetchall()
-    conn.close()
+    try:
+        _migrate_users_table()
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+
+        wanted = [
+            "id", "username", "first_name", "middle_name", "last_name",
+            "email", "phone", "role", "address", "city", "state", "zip",
+            "license_number", "npi_number",
+            "billing_address", "billing_city", "billing_state", "billing_zip",
+            "is_active", "created_at", "last_login",
+        ]
+
+        select_parts = []
+        for col in wanted:
+            if col in existing:
+                select_parts.append(col)
+            elif col == "is_active":
+                select_parts.append("1 AS is_active")
+            else:
+                select_parts.append(f"'' AS {col}")
+
+        sql = f"SELECT {', '.join(select_parts)} FROM users ORDER BY username"
+        rows = conn.execute(sql).fetchall()
+    finally:
+        conn.close()
     return rows
 
 
@@ -1088,9 +1119,19 @@ def update_user(uid: int, data: dict):
         "billing_address", "billing_city", "billing_state", "billing_zip",
         "is_active",
     ]
+    conn = get_connection()
+    cur = conn.cursor()
+    existing_row = cur.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not existing_row:
+        conn.close()
+        raise ValueError("User not found.")
+
     params = []
     for f in profile_fields:
-        val = data.get(f)
+        if f in data:
+            val = data.get(f)
+        else:
+            val = existing_row[f]
         if f == "is_active":
             params.append(int(bool(val)))
         else:
@@ -1098,8 +1139,6 @@ def update_user(uid: int, data: dict):
     set_clause = ", ".join(f"{f}=?" for f in profile_fields)
     params.append(uid)
 
-    conn = get_connection()
-    cur = conn.cursor()
     cur.execute(f"UPDATE users SET {set_clause} WHERE id=?", params)
 
     new_pw = (data.get("password") or "").strip()
