@@ -266,6 +266,17 @@ def _migrate_patients_table():
 def _migrate_session_notes_table():
     """Add any missing columns to session_notes (forward migration)."""
     new_columns = [
+        ("start_time", "TEXT DEFAULT ''"),
+        ("end_time", "TEXT DEFAULT ''"),
+        ("duration", "INTEGER DEFAULT 50"),
+        ("session_type", "TEXT DEFAULT 'Individual'"),
+        ("place_of_service", "TEXT DEFAULT '11'"),
+        ("cpt_code", "TEXT DEFAULT '90834'"),
+        ("cpt_modifier", "TEXT DEFAULT ''"),
+        ("dx1", "TEXT DEFAULT ''"),
+        ("dx2", "TEXT DEFAULT ''"),
+        ("dx3", "TEXT DEFAULT ''"),
+        ("dx4", "TEXT DEFAULT ''"),
         ("dx5", "TEXT DEFAULT ''"),
         ("dx6", "TEXT DEFAULT ''"),
         ("dx7", "TEXT DEFAULT ''"),
@@ -274,6 +285,15 @@ def _migrate_session_notes_table():
         ("dx10", "TEXT DEFAULT ''"),
         ("dx11", "TEXT DEFAULT ''"),
         ("dx12", "TEXT DEFAULT ''"),
+        ("fee", "REAL DEFAULT 0.0"),
+        ("note_text", "TEXT DEFAULT ''"),
+        ("goals", "TEXT DEFAULT ''"),
+        ("interventions", "TEXT DEFAULT ''"),
+        ("response", "TEXT DEFAULT ''"),
+        ("plan", "TEXT DEFAULT ''"),
+        ("signed", "INTEGER DEFAULT 0"),
+        ("signed_date", "TEXT DEFAULT ''"),
+        ("created_at", "TEXT DEFAULT (datetime('now'))"),
     ]
     conn = get_connection()
     cur = conn.cursor()
@@ -546,23 +566,36 @@ def get_session(sid):
 
 
 def save_session(data: dict):
-    conn = get_connection()
-    cur = conn.cursor()
-    sid = data.pop("id", None)
-    cols = list(data.keys())
-    vals = list(data.values())
-    if sid is None:
-        placeholders = ",".join(["?"] * len(cols))
-        col_str = ",".join(cols)
-        cur.execute(f"INSERT INTO session_notes ({col_str}) VALUES ({placeholders})", vals)
-        sid = cur.lastrowid
-    else:
-        set_str = ",".join([f"{c}=?" for c in cols])
-        vals.append(sid)
-        cur.execute(f"UPDATE session_notes SET {set_str} WHERE id=?", vals)
-    conn.commit()
-    conn.close()
-    return sid
+    payload = dict(data)
+    sid = payload.pop("id", None)
+
+    def _write_once() -> int:
+        conn = get_connection()
+        cur = conn.cursor()
+        cols = list(payload.keys())
+        vals = list(payload.values())
+        if sid is None:
+            placeholders = ",".join(["?"] * len(cols))
+            col_str = ",".join(cols)
+            cur.execute(f"INSERT INTO session_notes ({col_str}) VALUES ({placeholders})", vals)
+            out_sid = cur.lastrowid
+        else:
+            set_str = ",".join([f"{c}=?" for c in cols])
+            vals.append(sid)
+            cur.execute(f"UPDATE session_notes SET {set_str} WHERE id=?", vals)
+            out_sid = sid
+        conn.commit()
+        conn.close()
+        return out_sid
+
+    try:
+        return _write_once()
+    except sqlite3.OperationalError as ex:
+        msg = str(ex).lower()
+        if "no such column" not in msg and "has no column named" not in msg:
+            raise
+        _migrate_session_notes_table()
+        return _write_once()
 
 
 def delete_session(sid):
